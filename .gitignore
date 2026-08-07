@@ -8,3 +8,6 @@
 .daw-sessions/
 .daw-journal.jsonl
 # END DAW
+
+# Metadatos de WSL/Windows al copiar archivos desde el explorador
+*:Zone.Identifier

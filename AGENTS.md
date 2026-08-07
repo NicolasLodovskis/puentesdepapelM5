@@ -66,6 +66,14 @@ Leave it empty and that validation has nothing to compare against, so it stops b
 
 ---
 
+## Code conventions
+
+- No exportar constantes desde un archivo `'use server'`: Next.js sólo admite exportar funciones
+  async desde un módulo de Server Actions. Si se exporta una constante, la app falla al invocar el
+  formulario desde el click de un botón. Las constantes van en un módulo aparte.
+
+---
+
 ## What NOT to do in this project
 
 This section is worth its weight in gold: it is where the scars go, the things that already went
