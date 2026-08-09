@@ -46,7 +46,7 @@ files and **propose the text for you to paste here**. You always confirm it.
 | Runtime |  Node.js 20+ |
 | Framework | Next.js 15.5.22 (App Router) + React 19.2.8 |
 | Database | SQLite embebida (archivo .db único, sin servidor) vía better-sqlite3 13.0.2 — sin ORM |
-| Test runner | Vitest 4.1.10 (npm test → vitest run) |
+| Test runner | Vitest 4.1.10 (npm test → vitest run), cobertura con @vitest/coverage-v8. Sin entorno DOM ni runner e2e: las Server Actions se testean como funciones async. |
 | Linter / formatter | ESLint 9.39.5 (eslint-config-next + eslint-config-prettier) + Prettier 3.9.6 |
 | Package manager | npm (package-lock.json, y AGENTS.md documenta npm install / npm run dev / npm test) |
 
