@@ -11,3 +11,7 @@
 
 # Metadatos de WSL/Windows al copiar archivos desde el explorador
 *:Zone.Identifier
+
+# Bytecode de los scripts de DAW
+__pycache__/
+*.pyc
