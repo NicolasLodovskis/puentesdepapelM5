@@ -22,6 +22,11 @@ node_modules/
 coverage/
 *.tsbuildinfo
 
+# Variables de entorno: NUNCA se commitean (Principio IV)
+.env
+.env.*
+!.env.example
+
 # Base de datos SQLite: NUNCA se commitea (Principio IV)
 data/
 *.db
