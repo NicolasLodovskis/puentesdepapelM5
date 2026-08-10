@@ -15,3 +15,18 @@
 # Bytecode de los scripts de DAW
 __pycache__/
 *.pyc
+
+# Dependencias y artefactos de build
+node_modules/
+.next/
+coverage/
+*.tsbuildinfo
+
+# Base de datos SQLite: NUNCA se commitea (Principio IV)
+data/
+*.db
+*.db-wal
+*.db-shm
+
+# Bases temporales de la suite de tests (fuera de data/, a propósito)
+.tmp-tests/

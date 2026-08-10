@@ -1,0 +1,27 @@
+:root {
+  --color-fondo: #fdfcf9;
+  --color-texto: #1f1c18;
+  --color-borde: #d8d2c6;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  margin: 0;
+  padding: 0;
+}
+
+body {
+  background: var(--color-fondo);
+  color: var(--color-texto);
+  font-family:
+    system-ui,
+    -apple-system,
+    'Segoe UI',
+    Roboto,
+    sans-serif;
+  line-height: 1.5;
+}

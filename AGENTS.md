@@ -44,10 +44,10 @@ files and **propose the text for you to paste here**. You always confirm it.
 |-------|-------|
 | Language | TypeScript 5.9.3 |
 | Runtime |  Node.js 20+ |
-| Framework | Next.js 15.5.22 (App Router) + React 19.2.8 |
+| Framework | Next.js 16.3.0 (App Router, Turbopack) + React 19.2.8 |
 | Database | SQLite embebida (archivo .db único, sin servidor) vía better-sqlite3 13.0.2 — sin ORM |
-| Test runner | Vitest 4.1.10 (npm test → vitest run), cobertura con @vitest/coverage-v8. Sin entorno DOM ni runner e2e: las Server Actions se testean como funciones async. |
-| Linter / formatter | ESLint 9.39.5 (eslint-config-next + eslint-config-prettier) + Prettier 3.9.6 |
+| Test runner | Vitest 4.1.10 (npm test → vitest run --coverage), cobertura con @vitest/coverage-v8 y umbrales al 80%. Sin entorno DOM ni runner e2e: las Server Actions se testean como funciones async. |
+| Linter / formatter | ESLint 9.39.5 vía CLI (npm run lint → eslint .), con eslint-config-next 16.3.0 + eslint-config-prettier. Prettier 3.9.6 (npm run format:check). `next lint` no existe desde Next 16. |
 | Package manager | npm (package-lock.json, y AGENTS.md documenta npm install / npm run dev / npm test) |
 
 ---
