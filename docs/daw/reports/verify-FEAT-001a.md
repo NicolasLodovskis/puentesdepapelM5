@@ -8,7 +8,8 @@
 | Spec | `docs/daw/specs/spec-FEAT-001a.md` |
 | Threat model | `docs/daw/security/threat-FEAT-001a.md` |
 | Reporte SAST | `docs/daw/security/sast-FEAT-001a.md` |
-| Rondas de verificación | 1 (en curso) |
+| Rondas de verificación | 4 — FAILED, PASSED, PASSED, PASSED |
+| Resultado | **PASSED** (gate `verify` satisfecho en la ronda 4) |
 
 > Este archivo se **agrega**, no se sobrescribe. Cuántas rondas tardó la verificación es parte de lo
 > que pasó, y una ronda que falló es lo que explica el bucle correctivo que viene después.
@@ -299,3 +300,152 @@ congruencia.
 |---|---|
 | 1 · Mitigaciones 1 y 6 sin test | **CODE**, en esta ronda: test de convención sobre `package.json` y `next.config.ts` |
 | 2 · FR-04 no es «en español» | **Ticket nuevo**, en su fase DEFINE. El grafo no admite `VERIFY→DEFINE`, así que la enmienda del PRD no puede ocurrir dentro de FEAT-001a |
+
+---
+
+## Ronda 2 — 2026-08-11 — **PASSED**
+
+Alcance acotado al arreglo del FAIL 1: `test/convenciones/red.test.ts` (7 tests), cero líneas de
+producción. **14 mutaciones, 12 en rojo.**
+
+**FAIL 1 cerrado.** El revisor aplicó las tres que reportó el implementador más once propias
+(`-H 0.0.0.0`, `-H localhost`, `-H127.0.0.1` sin separador, reemplazo del runner por
+`node servidor.js`, la clave computada `['allowed'+'Origins']`, y el vaciado de los tres ayudantes).
+Los tres meta-guardias aguantan: si `sinComentarios()`, `tieneClave()` o `hostsDe()` se vacían, el
+test se pone rojo — la aserción negativa **no** puede pasar en silencio.
+
+Los dos guardias de la mitigación 6 **no son redundantes, y está probado**: una clave computada evade
+el textual y la caza el estructural; una clave en una rama que el entorno de test no evalúa evade el
+estructural y la caza el textual. Cada uno cubre el punto ciego del otro.
+
+**FAIL 2: disposición aceptada**, fundada en reglas y no en incomodidad — F-VER-01 se satisface (AC-06
+no dice «en español»), F-VER-02 y F-VER-06 también (la spec no declara `COLLATE`, así que el código
+es fiel a lo aprobado y la brecha nació en DEFINE/PLAN), y el grafo hace la enmienda mecánicamente
+imposible dentro del ticket: «un veredicto que no se puede ejecutar no es un veredicto».
+
+**Condición de secuencia que el revisor agregó, fundada en la sección *Rollback* de la spec:** el
+ordenamiento en español es una migración de esquema. Hecha hoy, sobre una base vacía, cuesta lo que
+costó la migración 001. Hecha después de que la librera cargue su inventario, cae bajo la cláusula que
+la spec ya escribió — migración sobre el activo, sin resguardo automático y sin copia a la que volver
+(PRD-001 §7). **El ticket nuevo tiene que cerrarse antes de que la aplicación entre en uso real**, y
+eso va en su PRD como dependencia, no como recordatorio.
+
+### WARNs de la ronda 2
+
+| ID | Hallazgo | Disposición |
+|---|---|---|
+| W-VER-08 | **La mitigación 1 sólo vigilaba dos nombres de script.** Agregar `"dev:red": "next dev -H 0.0.0.0"` dejaba la suite en 158/158 verde: una app **sin autenticación** escuchando en toda la red de la librería, o sea el riesgo R1 con su control compensatorio desactivado. El guardia hacía lo que la mitigación dice; la mitigación dice menos de lo que hace falta | Cerrada en la ronda 3 |
+| W-VER-09 | `allowedDevOrigins: ['*']` no lo veía ningún guardia, y `tsc` lo acepta: es clave real de Next 16, vecina de la que la mitigación 6 nombra. **No es un hueco de la mitigación 6** sino una superficie que el threat model no analizó porque no existía cuando se escribió | Cerrada en la ronda 3 |
+| W-VER-10 | El archivo nuevo no mueve los números de cobertura porque el `include` es `lib/**` + `app/**`. Correcto —es un test— pero se anota para que la coincidencia exacta no se lea como que la suite no cambió: pasó de 151 a 158 tests | Sin acción |
+
+---
+
+## Ronda 3 — 2026-08-11 — **PASSED**
+
+Alcance: el cierre de W-VER-08 y W-VER-09. **32 mutaciones.**
+
+**W-VER-08 cerrada sin perder la mitad vieja**, que era el riesgo real de invertir la aserción: nueve
+mutaciones rojas, incluido el borrado de la bandera de `dev`. Sobrevive porque el meta-guardia exige
+que `dev` y `start` estén **dentro** del conjunto vigilado, así que un detector que devolviera vacío
+no aprueba el borrado — se pone rojo por la pertenencia. El revisor agregó la prueba que faltaba: el
+**ciclo** (`dev: "npm run dev"`, que se esconde del detector porque el corte de ciclos deja la
+referencia sin expandir) también sale rojo, y por el meta-guardia.
+
+El implementador encontró por su cuenta un caso que no estaba en el encargo: **la delegación**
+(`npm run dev -- -H 0.0.0.0` no contiene la cadena `next dev`). Funciona en profundidad, con dos
+niveles.
+
+**W-VER-09 cerrada en los dos guardias.** El estructural pasó de preguntar por un nombre a enumerar
+las claves anidadas y filtrar por familia (`/^allowed\w*Origins$/`), que es lo que cubre la variante
+con clave computada de la clave nueva.
+
+**Corrección de la caracterización del límite residual, medida y no supuesta:** con la variable de
+entorno que la activa presente en la corrida, el guardia estructural **sí** caza la intersección de
+clave computada + rama condicional. No es un punto ciego absoluto sino **relativo al entorno de la
+suite**, y el escenario de explotación exige escribir la ofuscación, desplegar con la variable puesta
+y no correr nunca los tests con ella.
+
+### WARNs de la ronda 3
+
+| ID | Hallazgo | Disposición |
+|---|---|---|
+| W-VER-11 | **Falso positivo real.** `BANDERA_DE_HOST` capturaba `(\S+)` y `\S` se come la comilla: con `start-server-and-test 'npm run dev' 3000 'playwright test'` el host salía `127.0.0.1'` y el guardia afirmaba *«el script e2e no fija exactamente un host al loopback»* sobre un script que **sí** lo fija. Familia entera de runners afectada (`start-server-and-test`, `concurrently`, `wait-on`), y la spec ya agenda la medición con navegador para FEAT-001c. Un rojo que dice lo contrario de lo que pasa, en el guardia que respalda el único control que reemplaza a la autenticación, es el camino más corto a que alguien lo borre | **Cerrada en la ronda 4** por decisión del usuario |
+| W-VER-12 | Un script que sólo **menciona** el comando (`"ayuda": "echo 'usa npm run dev…'"`) sale rojo: el detector no distingue invocación de mención | **Abierta a propósito.** Falla cerrado, es improbable, y distinguirlas pide entender la sintaxis del shell — no es un token y traería sus propios falsos positivos |
+| W-VER-13 | La delegación sólo se resolvía para `npm`: `\bnpm` no matchea dentro de `pnpm` (entre `p` y `n` no hay frontera de palabra), y `yarn` no usa `run`. Severidad baja — el repo declara npm y commitea `package-lock.json` | Cerrada en la ronda 4 |
+
+---
+
+## Ronda 4 — 2026-08-11 — **PASSED**
+
+Alcance: dos tokens. **41 mutaciones, y la primera ronda en la que la mutación no encuentra nada.**
+
+```ts
+BANDERA_DE_HOST     = /(?:-H|--hostname)[=\s]+['"]?([\w.:[\]-]+)['"]?/gu
+REFERENCIA_A_SCRIPT = /\b(?:p?npm|yarn)\s+(?:run\s+)?([\w:-]+)/gu
+```
+
+**El `['"]?` no estaba en la corrección prescrita, y hacía falta.** Con la clase acotada a secas,
+`-H "127.0.0.1"` queda **sin captura** —el separador consume el espacio, la clase no admite la
+comilla— y el guardia reproduce el mismo falso positivo por la otra puerta. El implementador lo
+detectó, lo resolvió y lo declaró como desvío; el revisor lo confirmó por mutación.
+
+**Sin falso negativo, que era el riesgo del arreglo.** Las dos direcciones verificadas: 4 casos verdes
+(el runner entrecomillado en las dos formas de comilla, y el host correcto entrecomillado) y **6 rojos
+con el host malo dentro de las comillas**, incluidos el doble `-H` con las dos entre comillas y la
+delegación desde comillas a un script mal atado. Las tres formas quedaron clavadas como aserciones
+literales del meta-guardia del extractor, así que un patrón que dejara de leer dentro de las comillas
+se pone rojo ahí antes de poder aprobar nada.
+
+**Ningún agujero viejo reabierto:** diez mutaciones de rondas anteriores, las diez rojas. **Cero falsos
+positivos** sobre ocho scripts realistas, elegidos para morder los dos ejes que se ensancharon
+(comillas y gestores de paquetes).
+
+**Efecto lateral a favor, ahora probado:** los corchetes que se agregaron por IPv6 hacen que el guardia
+vea los comodines IPv6 — `-H [::]` y `-H ::`, equivalentes de `0.0.0.0`, salen rojos.
+
+`-H [::1]` sale rojo **y queda como decisión documentada**: es loopback, pero la mitigación nombra
+`127.0.0.1`, un guardia que acepte un conjunto de hosts «equivalentes» tiene que acertar en la
+equivalencia —y este archivo ya documenta un caso donde la intuición falla, `localhost`, que resuelve
+por DNS—, y los costos son asimétricos: fallar cerrado sobre un valor seguro cuesta un rojo con el
+comando en el mensaje; fallar abierto cuesta exposición silenciosa.
+
+### WARN de la ronda 4
+
+| ID | Hallazgo | Disposición |
+|---|---|---|
+| W-VER-14 | **Cosmético.** Para `[::1]` el mensaje dice «no fija exactamente un host **al loopback**», y `[::1]` *es* loopback: el mensaje contradice el hecho, que es la forma del defecto que la ronda 3 vino a arreglar. Se corrige cambiando una palabra («en `127.0.0.1`»), no la regla | Abierta. Puede viajar con el próximo cambio que toque el archivo |
+
+---
+
+## Veredicto final
+
+**PASSED.** Gate `verify` satisfecho.
+
+| Regla | Resultado |
+|---|---|
+| F-VER-01 · cada AC con test que pasa | ✅ 11/11 |
+| F-VER-02 · cada bloque implementado | ✅ 5/5 |
+| F-VER-03 · cobertura ≥ 80/80/80 | ✅ 97,81 / 95,45 / 95,55 |
+| F-VER-04 · caminos tristes | ✅ 20 funciones con entrada, todas con caso inválido |
+| F-VER-05 · lint y type checker | ✅ |
+| F-VER-06 · tests de la spec | ✅ 61/61 |
+| Condición 8 · las 9 mitigaciones con respaldo | ✅ |
+
+**Suite: 158 tests en 11 archivos.** Cuatro rondas de verificación, 87 mutaciones acumuladas sobre el
+guardia de red, y la lectura que el revisor dejó escrita: las cuatro rondas encontraron algo **en el
+borde** de lo que el guardia declaraba vigilar y nunca en su centro, y el borde se fue angostando —
+ronda 1 un control compensatorio sin ninguna red, ronda 2 un guardia que vigilaba dos nombres en vez
+de la propiedad, ronda 3 un falso positivo que iba a morder al ticket siguiente, ronda 4 nada. El
+único defecto de la última ronda lo encontró y corrigió el propio implementador antes de que el
+revisor llegara.
+
+### Lo que queda abierto, con nombre y disposición
+
+| # | Qué | A dónde va |
+|---|---|---|
+| 1 | **FR-04 · ordenamiento en español.** El orden es la colación `BINARY`: todo carácter no-ASCII que sobrevive al plegado cae después de la Z, y basta que sea la letra decisiva | **Ticket propio**, con la enmienda de FR-04 como primer acto de su DEFINE. **Antes de que la librera cargue su inventario real**, por la cláusula de *Rollback* de esta spec |
+| 2 | **Límite de identidad de `"Principito, El."`** — el mismo libro puede entrar dos veces y el `UNIQUE` no lo impide | **Requisito de entrada de FEAT-001b**, cuyo Excel de alta masiva es donde el pegado sucio llega en volumen |
+| 3 | Las **6 divergencias spec↔código** | Enmienda de la spec |
+| 4 | Los **9 refactors diferidos** | Candidatos de FEAT-001b. El de riesgo concreto es `FilaLibro`/`aLibro()` duplicados |
+| 5 | **Enmienda del texto de la mitigación 1** del threat model, que nombra dos scripts donde el guardia ya vigila la propiedad | Próxima revisión del threat model (artefacto de PLAN) |
+| 6 | W-VER-12 y W-VER-14 | Abiertas, registradas, sin acción |
