@@ -51,12 +51,43 @@ function hostsDe(comando: string): string[] {
   return Array.from(comando.matchAll(BANDERA_DE_HOST), (coincidencia) => coincidencia[1]);
 }
 
-describe('mitigación 1 — el servidor escucha sólo en 127.0.0.1 (R1, control compensatorio de A1)', () => {
+/** Un comando que levanta el servidor de Next, en cualquiera de sus dos modos. */
+const INVOCA_SERVIDOR = /\bnext\s+(?:dev|start)\b/u;
+
+/** Una delegación a otro script del mismo `package.json`. */
+const REFERENCIA_A_SCRIPT = /\bnpm\s+run\s+([\w:-]+)/gu;
+
+/**
+ * El comando con sus `npm run <otro>` reemplazados por el cuerpo del script referenciado.
+ *
+ * Sin esto, `"dev:red": "npm run dev -- -H 0.0.0.0"` no contendría la cadena `next dev` y
+ * quedaría fuera del conjunto vigilado, levantando el servidor en toda la red. Resolver la
+ * referencia lo pone dentro **y** deja las dos banderas en el mismo comando, que es lo que la
+ * aserción de «exactamente un host» necesita ver.
+ *
+ * `vistos` corta los ciclos: un `"dev": "npm run dev"` haría recursión infinita.
+ */
+function resolver(comando: string, vistos: ReadonlySet<string> = new Set()): string {
+  return comando.replace(REFERENCIA_A_SCRIPT, (coincidencia, nombre: string) => {
+    const cuerpo = scripts?.[nombre];
+    if (cuerpo === undefined || vistos.has(nombre)) {
+      return coincidencia;
+    }
+    return resolver(cuerpo, new Set(vistos).add(nombre));
+  });
+}
+
+/** Todo script de `package.json` que termine levantando el servidor, con su comando resuelto. */
+const scriptsDeServidor = Object.entries(scripts ?? {})
+  .map(([nombre, comando]) => [nombre, resolver(comando)] as const)
+  .filter(([, comando]) => INVOCA_SERVIDOR.test(comando));
+
+describe('mitigación 1 — ningún script levanta el servidor fuera de 127.0.0.1 (R1, control compensatorio de A1)', () => {
   it('extrae de verdad el host de un comando, en las cuatro formas de la bandera', () => {
-    // Meta-guardia del extractor: si `hostsDe()` devolviera siempre `[]`, los dos guardias de
-    // abajo se pondrían rojos por la aserción de longitud, no en silencio. Y si devolviera
-    // basura, dirían que el bind está mal cuando está bien. Se comprueba contra literales, no
-    // contra `package.json`, para que reescribir un script no mueva este test.
+    // Meta-guardia del extractor: si `hostsDe()` devolviera siempre `[]`, el guardia de abajo se
+    // pondría rojo por la aserción de longitud, no en silencio. Y si devolviera basura, diría
+    // que el bind está mal cuando está bien. Se comprueba contra literales, no contra
+    // `package.json`, para que reescribir un script no mueva este test.
     expect(hostsDe('next dev -H 127.0.0.1')).toEqual(['127.0.0.1']);
     expect(hostsDe('next dev -H=127.0.0.1')).toEqual(['127.0.0.1']);
     expect(hostsDe('next dev --hostname 127.0.0.1')).toEqual(['127.0.0.1']);
@@ -66,27 +97,53 @@ describe('mitigación 1 — el servidor escucha sólo en 127.0.0.1 (R1, control 
     expect(hostsDe('next dev -p 3000')).toEqual([]);
   });
 
-  it('el script dev fija el bind explícito al loopback', () => {
-    // La aserción va sobre el script `dev` y no sobre el `package.json` entero: un
-    // `toContain('127.0.0.1')` sobre el archivo completo pasaría con el bind puesto en el
-    // script equivocado, que es exactamente el escenario que deja la app expuesta.
-    const comando = scripts?.dev ?? '';
-    const hosts = hostsDe(comando);
+  it('reconoce como servidor a dev y start, y sólo a ellos, sin pedirle bandera al resto', () => {
+    // Meta-guardia del detector, y la mitad de la propiedad que la aserción de abajo no cubre:
+    // el guardia recorre **el conjunto de scripts que levantan el servidor**, así que un
+    // detector que devolviera el conjunto vacío lo dejaría pasando sin haber mirado nada, y con
+    // él volvería el agujero que este guardia vino a tapar. Exigir que `dev` y `start` estén
+    // dentro es lo que hace que borrarles la bandera siga siendo rojo.
+    const nombres = scriptsDeServidor.map(([nombre]) => nombre);
 
-    expect(comando, 'package.json no declara el script dev').not.toBe('');
-    expect(hosts, `el script dev no fija el host: ${comando}`).toHaveLength(1);
-    expect(hosts).toEqual([LOOPBACK]);
+    expect(nombres).toContain('dev');
+    expect(nombres).toContain('start');
+
+    // Y el otro lado: los scripts que no levantan nada no deben caer en el conjunto, porque
+    // entonces el guardia les exigiría una bandera de host que no tiene sentido y se pondría
+    // rojo por algo que no es un problema de seguridad.
+    for (const nombre of ['build', 'test', 'test:cov', 'lint', 'format', 'format:check']) {
+      expect(scripts?.[nombre], `package.json no declara el script ${nombre}`).toBeDefined();
+      expect(nombres, `${nombre} no levanta el servidor y no debería exigir bandera`).not.toContain(
+        nombre,
+      );
+    }
+
+    expect(INVOCA_SERVIDOR.test('next build')).toBe(false);
+    expect(INVOCA_SERVIDOR.test('vitest run --coverage')).toBe(false);
+    // Y la delegación se resuelve: si no, un script que llame a otro queda invisible.
+    expect(resolver('npm run dev -- -H 0.0.0.0')).toMatch(INVOCA_SERVIDOR);
   });
 
-  it('el script start fija el bind explícito al loopback', () => {
-    // `start` es el que corre en la máquina de la librería: si sólo `dev` estuviera atado al
-    // loopback, el control compensatorio de A1 no existiría en producción.
-    const comando = scripts?.start ?? '';
-    const hosts = hostsDe(comando);
+  it('todo script que levanta el servidor fija exactamente un host, y es el loopback', () => {
+    // La aserción está escrita sobre **la propiedad** y no sobre los nombres `dev` y `start`:
+    // afirmar sobre dos nombres deja invisible al tercer script que alguien agregue, y ese
+    // tercer script es el escenario más probable de este producto —«quiero ver el catálogo
+    // desde el celular», `next dev -H 0.0.0.0`, dos minutos—. En ese momento una aplicación
+    // **sin autenticación** queda escuchando en toda la red de la librería: es el riesgo R1 con
+    // su control compensatorio desactivado, y el compensatorio es lo único que hay, porque la
+    // falta de autenticación es un riesgo aceptado (A1) y no un descuido.
+    //
+    // Se pide **exactamente uno**: `-H 127.0.0.1 -H 0.0.0.0` contiene el bind correcto y
+    // escucha en toda la red igual. Y se pide la IP, no `localhost`: eso resuelve por DNS y
+    // puede no ser el loopback.
+    expect(scriptsDeServidor.length).toBeGreaterThan(0);
 
-    expect(comando, 'package.json no declara el script start').not.toBe('');
-    expect(hosts, `el script start no fija el host: ${comando}`).toHaveLength(1);
-    expect(hosts).toEqual([LOOPBACK]);
+    for (const [nombre, comando] of scriptsDeServidor) {
+      expect(
+        hostsDe(comando),
+        `el script ${nombre} no fija exactamente un host al loopback: ${comando}`,
+      ).toEqual([LOOPBACK]);
+    }
   });
 });
 
@@ -157,22 +214,40 @@ function sinComentarios(fuente: string): string {
   return resultado;
 }
 
-/** ¿Aparece `clave` como clave en algún nivel de este valor? */
-function tieneClave(valor: unknown, clave: string): boolean {
+/** Todas las claves presentes en un valor, a cualquier profundidad y en cualquier orden. */
+function clavesAnidadas(valor: unknown): string[] {
   if (Array.isArray(valor)) {
-    return valor.some((elemento) => tieneClave(elemento, clave));
+    return valor.flatMap((elemento) => clavesAnidadas(elemento));
   }
   if (typeof valor !== 'object' || valor === null) {
-    return false;
+    return [];
   }
   const registro = valor as Record<string, unknown>;
-  return (
-    Object.keys(registro).includes(clave) ||
-    Object.values(registro).some((anidado) => tieneClave(anidado, clave))
-  );
+  return Object.entries(registro).flatMap(([clave, anidado]) => [
+    clave,
+    ...clavesAnidadas(anidado),
+  ]);
 }
 
-describe('mitigación 6 — no se relaja la validación de Origin de los Server Actions (R5)', () => {
+/**
+ * Toda clave de configuración que relaje una validación de origen.
+ *
+ * El patrón es una familia y no un nombre porque hay **dos** claves en juego, y sólo una es la
+ * mitigación 6:
+ *
+ * - `serverActions.allowedOrigins` es la mitigación 6 (riesgo R5): relajarla desarma la única
+ *   defensa CSRF del `POST /` del Server Action de alta.
+ * - `allowedDevOrigins`, de primer nivel, **no es un hueco de la mitigación 6**: esa mitigación
+ *   nombra una clave concreta y esa clave está cubierta. Es una superficie vecina que el threat
+ *   model no analizó porque no existía cuando se escribió. Relaja la protección cross-origin del
+ *   servidor de desarrollo, no la de los Server Actions, y con el bind al loopback su alcance es
+ *   acotado. Se vigila igual: para este producto —sin autenticación, atado al loopback— no hay
+ *   ningún motivo legítimo para relajar el origen de nada. `tsc` la acepta sin chistar, porque
+ *   es una clave real de Next 16, así que el tipo no es la barrera.
+ */
+const CLAVE_QUE_RELAJA_ORIGEN = /^allowed\w*Origins$/u;
+
+describe('mitigación 6 — no se relaja ninguna validación de origen (R5, y la superficie vecina)', () => {
   const fuente = fs.readFileSync(path.join(RAIZ, 'next.config.ts'), 'utf8');
   const codigo = sinComentarios(fuente);
 
@@ -191,41 +266,49 @@ describe('mitigación 6 — no se relaja la validación de Origin de los Server 
     expect(codigo.length).toBeLessThan(fuente.length);
   });
 
-  it('reconoce la clave anidada a cualquier profundidad', () => {
-    // Meta-guardia del recorrido: sin esto, un `tieneClave()` que devolviera siempre `false`
+  it('recoge las claves anidadas a cualquier profundidad, incluidas las computadas', () => {
+    // Meta-guardia del recorrido: sin esto, un `clavesAnidadas()` que devolviera siempre `[]`
     // dejaría el guardia estructural de abajo pasando contra una configuración relajada.
-    expect(tieneClave({ serverActions: { allowedOrigins: ['*'] } }, 'allowedOrigins')).toBe(true);
-    expect(
-      tieneClave({ experimental: { serverActions: { allowedOrigins: [] } } }, 'allowedOrigins'),
-    ).toBe(true);
-    expect(tieneClave({ serverExternalPackages: ['better-sqlite3'] }, 'allowedOrigins')).toBe(
-      false,
+    expect(clavesAnidadas({ serverActions: { allowedOrigins: ['*'] } })).toContain(
+      'allowedOrigins',
     );
-    expect(tieneClave(undefined, 'allowedOrigins')).toBe(false);
+    expect(clavesAnidadas({ experimental: { serverActions: { allowedOrigins: [] } } })).toContain(
+      'allowedOrigins',
+    );
+    expect(clavesAnidadas({ allowedDevOrigins: ['*'] })).toContain('allowedDevOrigins');
+    // Una clave armada en tiempo de ejecución es una clave común en el objeto resuelto: por eso
+    // el guardia estructural mira el objeto y no el texto.
+    expect(clavesAnidadas({ [`allowedDev${'Origins'}`]: ['*'] })).toContain('allowedDevOrigins');
+    expect(clavesAnidadas({ serverExternalPackages: ['better-sqlite3'] })).toEqual([
+      'serverExternalPackages',
+    ]);
+    expect(clavesAnidadas(undefined)).toEqual([]);
   });
 
-  it('la configuración que exporta next.config.ts no lleva allowedOrigins en ningún nivel', async () => {
+  it('la configuración que exporta next.config.ts no relaja el origen en ningún nivel', async () => {
     // El guardia estructural, y el que no tiene puerta lateral: se mira el objeto **resuelto**
     // que Next.js lee, así que da igual si la clave se escribió suelta (`{ allowedOrigins }`),
-    // bajo `experimental`, con comillas, o armada aparte en una variable y volcada con spread.
+    // bajo `experimental`, con comillas, armada aparte en una variable y volcada con spread, o
+    // con el nombre computado (`['allowedDev' + 'Origins']`).
     const configuracion: unknown = (await import('@/next.config')).default;
+    const claves = clavesAnidadas(configuracion);
 
     // Que sea la configuración de verdad y no un módulo vacío: sin esto, un `default`
     // `undefined` haría pasar la aserción de abajo sin haber mirado nada.
-    expect(tieneClave(configuracion, 'serverExternalPackages')).toBe(true);
-    expect(tieneClave(configuracion, 'allowedOrigins')).toBe(false);
+    expect(claves).toContain('serverExternalPackages');
+    expect(claves.filter((clave) => CLAVE_QUE_RELAJA_ORIGEN.test(clave))).toEqual([]);
 
-    // La aserción se detiene en `allowedOrigins` y **no** exige que `serverActions` no exista:
-    // la mitigación 6 prohíbe relajar el origen, no configurar el bloque. Pedir la ausencia de
-    // la clave entera pondría rojo un `serverActions.bodySizeLimit` legítimo, y un guardia de
-    // seguridad que se pone rojo por algo que no es un problema de seguridad es un guardia que
-    // alguien va a borrar.
+    // La aserción se detiene en las claves que relajan el origen y **no** exige que
+    // `serverActions` no exista: la mitigación 6 prohíbe relajar el origen, no configurar el
+    // bloque. Pedir la ausencia de la clave entera pondría rojo un `serverActions.bodySizeLimit`
+    // legítimo, y un guardia de seguridad que se pone rojo por algo que no es un problema de
+    // seguridad es un guardia que alguien va a borrar.
   });
 
-  it('el fuente de next.config.ts no nombra allowedOrigins fuera de los comentarios', () => {
+  it('el fuente de next.config.ts no nombra ninguna clave de origen fuera de los comentarios', () => {
     // Cinturón sobre el fuente, además del tirante estructural: cubre la clave escrita en una
     // rama condicional que hoy no se evalúa, o detrás de una variable de entorno — casos que
     // el objeto resuelto en este entorno de test no mostraría.
-    expect(codigo).not.toMatch(/allowedOrigins/u);
+    expect(codigo).not.toMatch(/allowed\w*Origins/u);
   });
 });

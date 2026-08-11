@@ -577,3 +577,58 @@ puntero que no lleva a ninguna parte hace dudar del hallazgo entero.
 **Supresiones: 0.**
 
 **Resultado: PASSED.** El gate `sast` queda reganado.
+
+### Segundo bucle correctivo — ampliación del alcance de los dos guardias
+
+La ronda 2 de verificación dio PASSED pero levantó dos advertencias de **alcance** (W-VER-08 y W-VER-09):
+el guardia de la mitigación 1 vigilaba los scripts llamados `dev` y `start`, así que un tercer script
+que levantara el servidor era invisible; y `allowedDevOrigins` —clave real de Next 16, vecina de la
+que la mitigación 6 nombra— no la miraba ningún guardia. Las dos se cerraron.
+
+**Delta: un único archivo de test modificado** (`test/convenciones/red.test.ts`, +135/−52). Producción
+intacta: `git diff` vacío en `package.json`, `next.config.ts` y `vitest.config.ts`. Barrido del
+archivo: sin secretos, sin `child_process`, sin `eval`, sin `console.*`; las dos lecturas de archivo
+usan `path.join(process.cwd(), <literal>)` y el `await import` lleva especificador literal.
+`npm audit` → 0 vulnerabilidades.
+
+Lo que cambia en términos de seguridad, y es el motivo del bucle:
+
+| Antes | Ahora |
+|---|---|
+| «los scripts `dev` y `start` fijan el loopback» — dos nombres | «todo script que invoque `next dev`/`next start` fija exactamente un host, y es el loopback» — la propiedad. Resuelve además la **delegación** (`npm run dev -- -H 0.0.0.0`, que no contiene la cadena `next dev`), con corte de ciclos |
+| `allowedOrigins`, una clave | la **familia** `/allowed\w*Origins/`, en el guardia textual y en el estructural |
+
+El guardia estructural pasó de preguntar por un nombre a enumerar todas las claves anidadas y filtrar
+por familia: eso es lo que cubre la variante con clave computada de la clave nueva
+(`['allowedDev' + 'Origins']`), que ningún patrón textual puede ver porque no aparece literalmente en
+el fuente. Es la razón por la que hay dos guardias y no uno.
+
+11 mutaciones comprobadas en rojo (incluidas las dos de clave computada y la de delegación), 5
+cambios legítimos comprobados en verde (`-p 4000`, `--hostname=`, `rm -rf .next`, `next build
+--profile`, `serverActions.bodySizeLimit`) y 5 sabotajes de ayudantes en rojo, o sea que ningún
+meta-guardia puede pasar en silencio.
+
+#### Límite conocido, aceptado y no cerrado
+
+Una configuración que combine **clave computada Y rama condicional a la vez** evade los dos guardias:
+
+```ts
+...(process.env.RED === '1' ? { ['allowedDev' + 'Origins']: ['*'] } : {})
+```
+
+Medido: cada técnica por separado está cubierta —la clave computada la caza el estructural, la rama
+condicional la caza el textual— y sólo la intersección se escapa, porque no aparece en el objeto
+resuelto bajo el entorno del test y `\w*` no cruza las comillas ni el `+`.
+
+**No se cierra, con fundamento.** Es un escenario de ofuscación deliberada, no el accidente contra el
+que este guardia existe —el accidente es el script «de red» agregado en dos minutos, que ahora sí está
+cubierto—. Y cerrarlo bien exige una regla que el threat model no tiene («`next.config.ts` no usa
+claves computadas», o evaluar la configuración con varias permutaciones de entorno): eso es alcance de
+PLAN, no de un bucle correctivo de CODE. Queda registrado acá y en el reporte de verificación.
+
+| Severidad | Cantidad | Bloquea |
+|---|---|---|
+| 🔴 Critical / 🟠 High / 🟡 Medium | 0 | — |
+| 🟢 Low | 0 | — |
+
+**Supresiones: 0. Resultado: PASSED.**
