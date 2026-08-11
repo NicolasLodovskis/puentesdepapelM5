@@ -1,0 +1,37 @@
+# BEGIN DAW — pipeline runtime, NOT committed (managed by DAW)
+#   .daw-state.json  = which phase you are in; yours, not the repo's
+#   .daw-paused/     = paused tickets
+#   .daw-sessions/   = live session markers
+#   .daw-journal.jsonl = transitions that landed; outlives the state file
+.daw-state.json
+.daw-paused/
+.daw-sessions/
+.daw-journal.jsonl
+# END DAW
+
+# Metadatos de WSL/Windows al copiar archivos desde el explorador
+*:Zone.Identifier
+
+# Bytecode de los scripts de DAW
+__pycache__/
+*.pyc
+
+# Dependencias y artefactos de build
+node_modules/
+.next/
+coverage/
+*.tsbuildinfo
+
+# Variables de entorno: NUNCA se commitean (Principio IV)
+.env
+.env.*
+!.env.example
+
+# Base de datos SQLite: NUNCA se commitea (Principio IV)
+data/
+*.db
+*.db-wal
+*.db-shm
+
+# Bases temporales de la suite de tests (fuera de data/, a propósito)
+.tmp-tests/

@@ -1,0 +1,19 @@
+node_modules/
+.next/
+coverage/
+data/
+.tmp-tests/
+package-lock.json
+
+# Generado por Next.js y reescrito en cada build: "should not be edited".
+next-env.d.ts
+
+# Artefactos del pipeline y documentación: no se reformatean.
+# Ojo: sin anclar, un patrón como `*.md` también taparía el CHANGELOG.md que
+# escribe la fase RELEASE, así que se listan los directorios y nada más.
+.daw/
+.daw-paused/
+.claude/
+docs/
+AGENTS.md
+CLAUDE.md
