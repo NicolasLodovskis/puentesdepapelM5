@@ -324,7 +324,7 @@ commit `a6c386a`. `git ls-files` no trackea ningún `.env`, `.db` ni archivo de 
 
 Las dos sentencias nuevas del Bloque 4 (`lib/db/consultas.ts`) son literales constantes a nivel de
 módulo, sin una sola sustitución, y el término del usuario viaja **siempre** como parámetro
-posicional (`consultas.ts:157`, `:162`). El `LIKE` lleva `ESCAPE '\'` y el término pasa por un
+posicional (`consultas.ts:164`, `:169`). El `LIKE` lleva `ESCAPE '\'` y el término pasa por un
 escapado de `%`, `_` y la propia barra invertida en **una sola pasada** (`consultas.ts:30`,
 `:111-113`): escapar los comodines y la barra en pasadas separadas haría que el escapado se comiera
 a sí mismo. Sin eso, buscar `100%` devolvería medio catálogo — que es un defecto de resultados, no
@@ -379,7 +379,7 @@ verifica:
   (`listado-libros.tsx:53-56`) o como `defaultValue` (`buscador.tsx:35`), y React escapa las dos
   cosas.
 - **Verificado por comportamiento y no sólo por convención:** el test de
-  `test/app/acciones.test.ts:295-310` da de alta un libro cuyo título es
+  `test/app/acciones.test.ts:362-377` da de alta un libro cuyo título es
   `<script>alert(1)</script>` y otro con `<img onerror=`, renderiza el listado y comprueba tanto la
   ausencia del payload crudo como la presencia de su forma escapada. Un guardia de convención
   puede quedar obsoleto; éste falla si el escapado deja de ocurrir.
@@ -499,3 +499,81 @@ acepte un riesgo.
 Bloque 5, verificada en los dos caminos.
 
 **Resultado: PASSED.** El gate `sast` queda satisfecho para FEAT-001a.
+
+---
+
+## Barrido del bucle correctivo de VERIFY — 2026-08-11
+
+La ronda 1 de verificación (`docs/daw/reports/verify-FEAT-001a.md`) volvió el ticket a CODE, así que
+los gates `tests` y `sast` se limpiaron y hay que reganarlos. Éste es el barrido que los regana.
+
+**Delta respecto del barrido del closeout: un único archivo nuevo**, `test/convenciones/red.test.ts`.
+`git diff --stat HEAD` vacío: ni una línea de producción cambió, y `package.json` y `next.config.ts`
+—los dos archivos que el test nuevo vigila— quedaron idénticos al commit del Bloque 1, verificado
+después de revertir cada mutación de la comprobación de falsabilidad.
+
+### Qué agrega el archivo nuevo, en términos de superficie
+
+Nada. Es un guardia de convención que **lee** dos archivos de configuración y afirma sobre ellos.
+Igual se barre, porque un archivo de test que se equivoca puede volverse un vector:
+
+| Regla | Resultado |
+|---|---|
+| F-SAST-01 · secretos | ✅ sin coincidencias |
+| F-SAST-03 · comandos de SO | ✅ sin `child_process`, sin `spawn`, sin `execSync` |
+| F-SAST-04 · deserialización | ✅ sin `eval`, sin `new Function`. El `JSON.parse` de la línea 31 es sobre el `package.json` **del propio repo**, no sobre entrada externa. El `await import('@/next.config')` de la línea 211 es un especificador **literal**, no construido: no hay carga dinámica de un módulo elegido por un dato |
+| F-SAST-05 · path traversal | ✅ las dos rutas se arman con `path.join(process.cwd(), <literal>)`. Ninguna entrada externa participa |
+| F-SAST-10 · logging | ✅ ningún `console.*` |
+| F-SAST-13/16 · CVE | ✅ `npm audit` → `found 0 vulnerabilities`. El archivo no agrega dependencias |
+
+Las demás categorías no cambian respecto del barrido del closeout, que sigue vigente sobre el mismo
+código de producción.
+
+### Lo que este barrido mejora, y es el motivo del bucle
+
+El barrido del closeout declaró limpias las mitigaciones 1 y 6 **leyendo los archivos**
+(`package.json` con `-H 127.0.0.1`, `next.config.ts` sin `allowedOrigins`) y verificando la
+mitigación 1 contra la aplicación corriendo. Eso era cierto y sigue siéndolo, pero era una foto: nada
+impedía que el commit siguiente las borrara sin que nada se pusiera rojo. La verificación
+independiente lo levantó como FAIL, y con razón — **la mitigación 1 es el control compensatorio del
+riesgo aceptado A1**, así que su ausencia de red de regresión valía más que su presencia en el
+archivo.
+
+Desde este barrido, las dos tienen guardia:
+
+| Mitigación | Guardia | Comprobado por mutación |
+|---|---|---|
+| 1 · bind a `127.0.0.1` en `dev` y `start` | `test/convenciones/red.test.ts:69`, `:81` — afirma sobre **cada** aparición de la bandera de host del script que corresponde, no sobre el `package.json` entero, y exige exactamente una: la versión laxa dejaría pasar `-H 127.0.0.1 -H 0.0.0.0`, que contiene el bind correcto y escucha en toda la red igual | Borrar el bind de `dev` → rojo. Borrarlo de `start` → rojo. Con el de `dev` borrado el archivo **seguía conteniendo** `127.0.0.1` en `start`, y el guardia se puso rojo igual |
+| 6 · no relajar `allowedOrigins` | `red.test.ts:207` (estructural, sobre el objeto **resuelto** que Next.js lee: cubre la clave suelta, bajo `experimental`, con cualquier comillas, o volcada con spread) y `:225` (textual, sobre el fuente **sin comentarios**) | `serverActions: { allowedOrigins: ['*'] }` → rojas las dos. La variante anidada bajo `experimental` → rojas las dos |
+
+Detalle que vale registrar, porque es la trampa de esta mitigación en particular: `next.config.ts`
+**nombra `allowedOrigins` a propósito**, en el comentario que explica por qué no se configura. Un
+`not.toContain('allowedOrigins')` sobre el fuente crudo se pone rojo contra el código correcto, y la
+reacción previsible a ese rojo es borrar el guardia o borrar el comentario. De ahí el filtro de
+comentarios, con su propio meta-guardia: si el filtro devolviera cadena vacía, la aserción negativa
+pasaría **en silencio para siempre**.
+
+Con esto, la condición 8 de «Final verification» de la spec queda cubierta para las **nueve**
+mitigaciones.
+
+### Corrección de punteros
+
+Se corrigieron dos referencias de línea que habían quedado desactualizadas en el barrido del
+closeout (señaladas como W-VER-07 en el reporte de verificación): el test de escapado XSS está en
+`test/app/acciones.test.ts:362-377` (decía 295-310) y los parámetros de la búsqueda en
+`consultas.ts:164`, `:169` (decía 157, 162). Los hallazgos eran correctos; los punteros habían
+corrido con las rondas de endurecimiento. Un reporte de seguridad se lee por sus punteros, así que un
+puntero que no lleva a ninguna parte hace dudar del hallazgo entero.
+
+### Resumen
+
+| Severidad | Cantidad | Bloquea |
+|---|---|---|
+| 🔴 Critical | 0 | — |
+| 🟠 High | 0 | — |
+| 🟡 Medium | 0 | — |
+| 🟢 Low | 0 | — |
+
+**Supresiones: 0.**
+
+**Resultado: PASSED.** El gate `sast` queda reganado.
