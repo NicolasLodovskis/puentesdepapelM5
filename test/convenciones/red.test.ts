@@ -41,8 +41,24 @@ const scripts = (
  * bandera (`-H` y `--hostname`) y los dos separadores (espacio y `=`), porque las cuatro
  * combinaciones son válidas para Next y exigir una sola dejaría al comando **invisible para el
  * guardia** en vez de ponerlo rojo.
+ *
+ * El host se captura con una clase acotada a lo que un host puede contener y **no** con `\S+`,
+ * que se comía la comilla de cierre: la familia de runners que se agrega para un test de
+ * navegador —`start-server-and-test`, `concurrently`, `wait-on`— envuelve el comando del
+ * servidor entre comillas, y un `start-server-and-test 'npm run dev' 3000 …` legítimo daba el
+ * host `127.0.0.1'` y ponía rojo el guardia con un mensaje que afirmaba lo contrario de lo que
+ * pasaba. Un rojo incomprensible en un guardia de seguridad es cómo se terminan borrando los
+ * guardias.
+ *
+ * Las comillas alrededor del valor se admiten y no se capturan, para que `-H "127.0.0.1"` no
+ * sea el mismo falso positivo por la otra puerta; el host de adentro se sigue leyendo, así que
+ * un `-H "0.0.0.0"` entre comillas se ve igual.
+ *
+ * Los corchetes en la clase son por IPv6, y con una consecuencia deliberada: `-H [::1]` se
+ * captura entero y se compara contra `127.0.0.1`, así que sale **rojo**. `::1` es loopback, pero
+ * la mitigación nombra `127.0.0.1` y el guardia falla cerrado. No es un bug: es la decisión.
  */
-const BANDERA_DE_HOST = /(?:-H|--hostname)(?:[=\s]+)(\S+)/gu;
+const BANDERA_DE_HOST = /(?:-H|--hostname)[=\s]+['"]?([\w.:[\]-]+)['"]?/gu;
 
 /** El único host admitido. `localhost` no sirve: resuelve por DNS y puede no ser el loopback. */
 const LOOPBACK = '127.0.0.1';
@@ -54,11 +70,18 @@ function hostsDe(comando: string): string[] {
 /** Un comando que levanta el servidor de Next, en cualquiera de sus dos modos. */
 const INVOCA_SERVIDOR = /\bnext\s+(?:dev|start)\b/u;
 
-/** Una delegación a otro script del mismo `package.json`. */
-const REFERENCIA_A_SCRIPT = /\bnpm\s+run\s+([\w:-]+)/gu;
+/**
+ * Una delegación a otro script del mismo `package.json`.
+ *
+ * `\bnpm` **no matchea dentro de `pnpm`** —entre `p` y `n` no hay frontera de palabra—, así que
+ * un `pnpm run dev -- -H 0.0.0.0` quedaba invisible al detector. Es el mismo hueco por una
+ * tercera puerta lateral, y el proyecto declara npm en `AGENTS.md`, pero cerrarlo cuesta un
+ * token y el `run` es opcional porque `yarn dev` no lo lleva.
+ */
+const REFERENCIA_A_SCRIPT = /\b(?:p?npm|yarn)\s+(?:run\s+)?([\w:-]+)/gu;
 
 /**
- * El comando con sus `npm run <otro>` reemplazados por el cuerpo del script referenciado.
+ * El comando con sus delegaciones reemplazadas por el cuerpo del script referenciado.
  *
  * Sin esto, `"dev:red": "npm run dev -- -H 0.0.0.0"` no contendría la cadena `next dev` y
  * quedaría fuera del conjunto vigilado, levantando el servidor en toda la red. Resolver la
@@ -95,6 +118,29 @@ describe('mitigación 1 — ningún script levanta el servidor fuera de 127.0.0.
     expect(hostsDe('next dev -H 127.0.0.1 -H 0.0.0.0')).toEqual(['127.0.0.1', '0.0.0.0']);
     expect(hostsDe('next dev')).toEqual([]);
     expect(hostsDe('next dev -p 3000')).toEqual([]);
+
+    // El host no se lleva puesta la comilla que cierra el comando envuelto por un runner de
+    // navegador. Ésta es la aserción del falso positivo que el guardia tuvo: sin ella el host
+    // salía `127.0.0.1'` y un `e2e` legítimo se ponía rojo.
+    expect(hostsDe("start-server-and-test 'next dev -H 127.0.0.1' 3000 'x'")).toEqual([
+      '127.0.0.1',
+    ]);
+    expect(hostsDe('start-server-and-test "next dev -H 127.0.0.1" 3000 "x"')).toEqual([
+      '127.0.0.1',
+    ]);
+
+    // Y la dirección que importa más: acotar la captura no puede volver ciego al guardia
+    // **dentro** de las comillas. Un host malo ahí adentro se sigue viendo, con comilla simple,
+    // con doble, y con el valor entrecomillado por separado.
+    expect(hostsDe("start-server-and-test 'next dev -H 0.0.0.0' 3000 'x'")).toEqual(['0.0.0.0']);
+    expect(hostsDe('start-server-and-test "next dev -H 0.0.0.0" 3000 "x"')).toEqual(['0.0.0.0']);
+    expect(hostsDe('next dev -H "0.0.0.0"')).toEqual(['0.0.0.0']);
+    expect(hostsDe("next dev -H '0.0.0.0'")).toEqual(['0.0.0.0']);
+    expect(hostsDe('next dev -H "127.0.0.1"')).toEqual(['127.0.0.1']);
+
+    // IPv6: se captura entero, se compara contra 127.0.0.1 y por lo tanto sale rojo. Queda
+    // clavado como decisión —el guardia falla cerrado— y no como accidente del patrón.
+    expect(hostsDe('next dev -H [::1]')).toEqual(['[::1]']);
   });
 
   it('reconoce como servidor a dev y start, y sólo a ellos, sin pedirle bandera al resto', () => {
@@ -120,8 +166,18 @@ describe('mitigación 1 — ningún script levanta el servidor fuera de 127.0.0.
 
     expect(INVOCA_SERVIDOR.test('next build')).toBe(false);
     expect(INVOCA_SERVIDOR.test('vitest run --coverage')).toBe(false);
-    // Y la delegación se resuelve: si no, un script que llame a otro queda invisible.
+
+    // Y la delegación se resuelve: si no, un script que llame a otro queda invisible. Los tres
+    // gestores, porque `\bnpm` no matchea dentro de `pnpm` y `yarn` no lleva `run`.
     expect(resolver('npm run dev -- -H 0.0.0.0')).toMatch(INVOCA_SERVIDOR);
+    expect(resolver('pnpm run dev -- -H 0.0.0.0')).toMatch(INVOCA_SERVIDOR);
+    expect(resolver('yarn dev -H 0.0.0.0')).toMatch(INVOCA_SERVIDOR);
+    // Y el comando resuelto conserva la bandera de quien delega, que es lo que ve la aserción de
+    // host. Se afirma la pertenencia y no la lista completa: atar este meta-guardia al cuerpo
+    // exacto del script `dev` lo pondría rojo cada vez que alguien toque `dev`, con un mensaje
+    // que habla de la resolución de delegaciones y no del bind. Es el mismo defecto que tuvo
+    // este archivo con la comilla: un rojo que afirma algo distinto de lo que pasa.
+    expect(hostsDe(resolver('pnpm run dev -- -H 0.0.0.0'))).toContain('0.0.0.0');
   });
 
   it('todo script que levanta el servidor fija exactamente un host, y es el loopback', () => {

@@ -632,3 +632,62 @@ PLAN, no de un bucle correctivo de CODE. Queda registrado acá y en el reporte d
 | 🟢 Low | 0 | — |
 
 **Supresiones: 0. Resultado: PASSED.**
+
+### Tercer bucle correctivo — el falso positivo que habría hecho borrar el guardia
+
+La ronda 3 dio PASSED y levantó un **falso positivo real** (W-VER-11) más un hueco menor (W-VER-13).
+Los dos cerrados; delta de un archivo de test (+61/−5), producción intacta, `npm audit` en 0.
+
+El falso positivo importa más que su tamaño. `BANDERA_DE_HOST` capturaba `(\S+)`, y `\S` incluye la
+comilla, así que con un runner que envuelve el comando del servidor —`start-server-and-test`,
+`concurrently`, `wait-on`— el host salía `127.0.0.1'` con apóstrofo y el guardia afirmaba *«el script
+e2e no fija exactamente un host al loopback»* sobre un script que **sí** lo fija. Ese rojo lo iba a
+encontrar FEAT-001c, que según la spec de FEAT-001a es quien trae la medición con navegador. **Un
+rojo que dice lo contrario de lo que pasa, en el guardia que respalda el único control que reemplaza
+a la autenticación, es el camino más corto a que alguien borre el guardia a mano.**
+
+Patrones nuevos:
+
+```ts
+BANDERA_DE_HOST     = /(?:-H|--hostname)[=\s]+['"]?([\w.:[\]-]+)['"]?/gu
+REFERENCIA_A_SCRIPT = /\b(?:p?npm|yarn)\s+(?:run\s+)?([\w:-]+)/gu
+```
+
+El `['"]?` no estaba en la corrección propuesta y se agregó con razón: acotar la clase a mano dejaba
+`-H "127.0.0.1"` **sin captura**, o sea el mismo falso positivo por la otra puerta. La clase admite
+IPv6 entre corchetes, y queda documentado como **decisión y no como bug** que `-H [::1]` sale rojo:
+`::1` es loopback, pero la mitigación nombra `127.0.0.1` y el guardia falla cerrado.
+
+Lo que verifica que el arreglo no cambió un falso positivo por un **falso negativo**, que habría sido
+mucho peor —nadie ve el rojo molesto y nadie ve tampoco la exposición—:
+
+| Dirección | Caso | Resultado |
+|---|---|---|
+| el verde que aparece | `start-server-and-test 'npm run dev' 3000 'playwright test'`, con comillas simples y dobles, y `-H "127.0.0.1"` | verde |
+| **el rojo que se conserva** | host malo **dentro** de las comillas, en las tres formas (`'…-H 0.0.0.0'`, `"…-H 0.0.0.0"`, `-H "0.0.0.0"`) | rojo |
+
+Las tres formas quedaron clavadas como aserciones literales dentro del meta-guardia del extractor, no
+sólo comprobadas por fuera: si alguien «simplifica» el patrón y lo vuelve ciego dentro de las
+comillas, el meta-guardia lo dice.
+
+`REFERENCIA_A_SCRIPT` cubre ahora `pnpm` y `yarn` (`\bnpm` no matchea dentro de `pnpm`: entre `p` y
+`n` no hay frontera de palabra). Severidad baja —el repo declara npm y commitea `package-lock.json`—
+y se cerró por ser la tercera puerta lateral del mismo hueco.
+
+**Batería de esta ronda: 26 casos, 0 desvíos.** Las 11 mutaciones de la ronda anterior siguen las 11
+en rojo, los 5 cambios legítimos siguen en verde, y los 5 sabotajes de ayudantes en rojo.
+
+#### Límite conocido que se deja abierto a propósito
+
+W-VER-12: un script que sólo **menciona** el comando en texto (`"ayuda": "echo 'usa npm run dev…'"`)
+sale rojo, porque el detector no distingue una invocación de una mención. Falla cerrado y es
+improbable. Distinguir las dos cosas no es un cambio de un token y traería sus propios falsos
+positivos, así que se registra en vez de arreglarse: es la misma raíz que el resto: los dos guardias
+razonan sobre texto de comando, que es lo correcto para un guardia de convención, y el costo son
+mordidas en cadenas que no son comandos.
+
+| Severidad | Cantidad | Bloquea |
+|---|---|---|
+| 🔴 Critical / 🟠 High / 🟡 Medium / 🟢 Low | 0 | — |
+
+**Supresiones: 0. Resultado: PASSED.**
