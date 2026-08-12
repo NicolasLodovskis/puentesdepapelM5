@@ -5,7 +5,7 @@
 | Ticket | FEAT-001b |
 | Tracker | ninguno |
 | Date | 2026-08-07 |
-| PRD loops | 1 |
+| PRD loops | 2 |
 
 > Sub-ticket `b` de FEAT-001 (ver `prd-FEAT-001.md`). Depende de FEAT-001a. Recorte de `PRD.md`
 > (PRD-001, el PRD del producto): cada FR indica de qué RF proviene.
@@ -37,7 +37,9 @@ recalcular la identidad sobre una base chica cuesta lo que no cuesta después.
 ## Goals
 
 - Que la librera pueda **entrar a un libro** desde el listado y ver todos sus datos juntos.
-- Que pueda **vender** un ejemplar en un gesto, con el stock descontado y la venta registrada.
+- Que pueda **vender** un ejemplar sin rodeos —empezando desde la fila del listado, donde está
+  mirando— pero que la venta quede confirmada antes de tocar el stock, para que un click de más no
+  descuente nada.
 - Que pueda **corregir cualquier dato** de un libro ya cargado: precio, stock, título y editorial.
 - Que ningún cambio de precio o de stock ocurra sin su entrada de historial, y que una operación que
   no cambia nada no ensucie ese historial.
@@ -54,9 +56,9 @@ recalcular la identidad sobre una base chica cuesta lo que no cuesta después.
 
 **Venta**
 
-- **FR-02** (PRD-001 RF-05): El sistema debe permitir marcar un libro como vendido desde su fila en
-  el listado, descontando 1 de su stock. El sistema no debe permitir la venta de un libro con stock
-  0.
+- **FR-02** (PRD-001 RF-05): El sistema debe permitir iniciar la venta de un libro desde su fila en
+  el listado, y debe exigir una confirmación en la vista de detalle antes de descontar 1 de su
+  stock. El sistema no debe permitir la venta de un libro con stock 0.
 
 **Edición**
 
@@ -109,8 +111,9 @@ recalcular la identidad sobre una base chica cuesta lo que no cuesta después.
 - **AC-01** (FR-01): WHEN el usuario abre un libro desde su fila en el listado, THE sistema SHALL
   mostrar su título, editorial, stock y precio, y SHALL ofrecer desde esa vista las operaciones de
   FR-03, FR-04, FR-05 y FR-06.
-- **AC-02** (FR-02, FR-07, FR-08): WHILE el libro tiene stock S ≥ 1, WHEN el usuario lo marca como
-  vendido, THE sistema SHALL descontar 1 de su stock, SHALL registrar la venta en el historial de
+- **AC-02** (FR-02, FR-07, FR-08): WHILE el libro tiene stock S ≥ 1, WHEN el usuario confirma la
+  venta desde la vista de detalle, THE sistema SHALL descontar 1 de su stock, SHALL registrar la
+  venta en el historial de
   ventas con fecha y precio de venta igual al precio vigente, y SHALL registrar el cambio en el
   historial de stock con fecha, cantidad anterior S, cantidad resultante S − 1 y origen `venta`.
 - **AC-03** (FR-02): IF el libro tiene stock 0, THEN THE sistema SHALL impedir la venta con un
@@ -153,6 +156,9 @@ recalcular la identidad sobre una base chica cuesta lo que no cuesta después.
 - **AC-16** (FR-11): IF al recalcular dos o más libros pasan a compartir identidad, THEN THE sistema
   SHALL revertir el recálculo completo, SHALL informar que existen colisiones sin enumerarlas, y
   SHALL no modificar ningún libro ni ninguna entrada de historial.
+- **AC-17** (FR-02): WHEN el usuario acciona la venta desde la fila del listado, THE sistema SHALL
+  llevarlo a la vista de detalle de ese libro con la venta pendiente de confirmación, SHALL no
+  modificar el stock y SHALL no registrar venta ni entrada de historial.
 
 ## Out of Scope
 
@@ -181,7 +187,7 @@ recalcular la identidad sobre una base chica cuesta lo que no cuesta después.
 | Riesgo | Impacto | Mitigación |
 |---|---|---|
 | La venta escribe tres cosas —stock, historial de stock e historial de ventas— y un fallo parcial deja el inventario mintiendo. | Stock descontado sin venta registrada, o al revés: el historial deja de servir para reconstruir nada. | NFR-01 y AC-11 exigen la transacción única y la verifican forzando el fallo de la última escritura. |
-| Vender es una acción de un solo click sobre una fila del listado: un click de más descuenta stock y registra una venta que no ocurrió. | Inventario y historial de ventas corrompidos por un error de la usuaria, sin forma de deshacerlo. | Riesgo abierto: la confirmación de la venta es una decisión de diseño de PLAN. El historial de ventas (FR-07) al menos deja el registro con su fecha para poder detectarlo. |
+| Un click de más sobre la fila del listado descontaría stock y registraría una venta que no ocurrió, sin forma de deshacerla. | Inventario y historial de ventas corrompidos por un error de la usuaria. | **Cerrado en PLAN:** FR-02 y AC-17 exigen que la fila sólo lleve al detalle y que el descuento ocurra recién al confirmar ahí. El click accidental no escribe nada. El costo es un gesto más por venta, aceptado a cambio de que la operación irreversible no dependa de la puntería. |
 | La regla de no-cambio (FR-09) y la venta conviven: vender deja el stock distinto, editar al mismo valor no. | Una implementación que compare mal deja ventas sin registrar. | AC-02 y AC-10 cubren los dos lados por separado: la venta siempre escribe, la edición sin cambio nunca. |
 | La normalización de títulos de FR-06 es la misma de FEAT-001a. | Reimplementarla acá produciría dos identidades distintas para el mismo catálogo. | FEAT-001a FR-08 la deja en una función compartida; este sub-ticket la modifica en un solo lugar (FR-10) y la consume desde ahí, sin duplicarla. |
 | FR-10 cambia una función que el alta y la búsqueda de FEAT-001a ya consumen. | Una regresión acá rompe funcionalidad ya entregada y verificada. | AC-13 fija el comportamiento nuevo y la suite existente de FEAT-001a queda como red de regresión: ninguno de sus tests puede cambiar para que FR-10 pase. |
