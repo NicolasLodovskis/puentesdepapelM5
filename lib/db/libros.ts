@@ -2,9 +2,8 @@ import 'server-only';
 
 import type Database from 'better-sqlite3';
 
-import { normalizarTitulo } from '@/lib/dominio/normalizar-titulo';
+import { derivarLibro } from '@/lib/dominio/derivar-libro';
 import { parsearPrecio } from '@/lib/dominio/parsear-precio';
-import { plegarTexto } from '@/lib/dominio/plegar-texto';
 
 import { obtenerDb } from './conexion';
 import type { CampoLibro, ErrorCampo, LibroEnConflicto, ResultadoCrearLibro } from './errores';
@@ -294,11 +293,14 @@ function esViolacionDeUnique(error: unknown): boolean {
  *
  * > **Invariante para features posteriores.** `titulo_normalizado`, `titulo_orden` y
  * > `editorial_normalizada` son columnas **derivadas y almacenadas**. Todo camino que
- * > escriba `titulo` o `editorial` **debe** recalcularlas en la misma sentencia. FEAT-001b
- * > implementa la edición de título y editorial (PRD-001 RF-23/RF-24): si actualiza
- * > `titulo` sin recalcular `titulo_normalizado`, la identidad del catálogo se
- * > desincroniza en silencio, la unicidad deja de valer y los dos flujos de Excel matchean
- * > contra el libro equivocado. Ese recálculo vive en este archivo y en ningún otro lado.
+ * > escriba `titulo` o `editorial` **debe** recalcularlas en la misma sentencia, y **debe**
+ * > obtenerlas de `derivarLibro()` (`lib/dominio/derivar-libro.ts`), que es el único
+ * > productor de las tres en el proyecto. Si un camino actualiza `titulo` sin recalcular
+ * > `titulo_normalizado`, la identidad del catálogo se desincroniza en silencio, la unicidad
+ * > deja de valer y los dos flujos de Excel matchean contra el libro equivocado. El recálculo
+ * > deja de vivir en este archivo justamente porque ya no es el único que escribe libros: la
+ * > edición (FEAT-001b FR-06) y el recálculo de identidad (FR-11) necesitan la misma
+ * > derivación, y tres copias de tres llamadas es cómo dos de ellas se separan.
  */
 export function crearLibro(
   entrada: EntradaLibro,
@@ -320,9 +322,10 @@ export function crearLibro(
     }
 
     // 2. Derivar las tres columnas calculadas (ver el invariante de arriba).
-    const tituloNormalizado = normalizarTitulo(titulo.valor);
-    const tituloOrden = plegarTexto(titulo.valor);
-    const editorialNormalizada = plegarTexto(editorial.valor);
+    const { tituloNormalizado, tituloOrden, editorialNormalizada } = derivarLibro(
+      titulo.valor,
+      editorial.valor,
+    );
 
     if (tituloNormalizado === '') {
       // Un título sin letras ni dígitos —`"¿¡?!"`— no es vacío, pero su identidad sí, y el

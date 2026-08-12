@@ -258,6 +258,15 @@ descarte de todas las combining marks, precisamente para no arrastrarse la `ñ`.
 quitar puntuación, luego colapsar espacios. El orden importa: la detección del artículo pospuesto
 necesita la coma, así que ocurre antes de quitar la puntuación.
 
+> **Cerrado por FEAT-001b (FR-10, AC-13).** Este orden dejaba la puntuación **final** dentro de la
+> identidad: `"Principito, El."` y `'"Principito, El"'` entraban al catálogo con otra clave que
+> `"El Principito"`, así que el mismo libro se podía dar de alta dos veces y el `UNIQUE` no lo veía.
+> Se documentaba acá y en `lib/dominio/normalizar-titulo.ts` como límite conocido y decisión de
+> producto pendiente; ya no lo es. `spec-FEAT-001b.md` Block 1 agrega el recorte de la cola sin
+> letras ni dígitos **antes** de buscar el artículo, y su Block 2 recalcula la identidad de los
+> libros ya cargados. El orden vigente es: plegar → recortar el final → mover el artículo →
+> quitar puntuación → colapsar espacios.
+
 Los artículos reconocidos son los nueve del español, y **sólo esos**:
 `el`, `la`, `los`, `las`, `un`, `una`, `unos`, `unas`, `lo`. Se reconoce el artículo pospuesto con el
 patrón `, <artículo>` al final del título. El artículo antepuesto se deja donde está.

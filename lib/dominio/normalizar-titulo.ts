@@ -25,42 +25,54 @@ const PUNTUACION = /[^\p{L}\p{N}\s]/gu;
 const ESPACIOS = /\s+/gu;
 
 /**
+ * La cola de caracteres que no son ni letra ni dígito: puntuación, comillas **y espacios**.
+ *
+ * Incluye el espacio a propósito. `plegarTexto()` recorta los extremos pero no colapsa los
+ * espacios internos, así que `"Principito, El ."` llega acá con el espacio todavía entre el
+ * artículo y el punto: un recorte de sólo puntuación dejaría `"principito, el "` y el patrón
+ * anclado en `$` seguiría sin ver el artículo. Es el caso vecino del que cierra AC-13, y
+ * arreglar uno sin el otro es la trampa (spec-FEAT-001b Block 1).
+ *
+ * Sin la bandera `g`: se usa con `replace` una sola vez y el patrón ya está anclado al final.
+ * Sin cuantificadores anidados (riesgo R12): el `+` recorre la cola una vez.
+ */
+const COLA_SIN_LETRAS_NI_DIGITOS = /[^\p{L}\p{N}]+$/u;
+
+/**
  * Calcula la **identidad** de un libro: su título normalizado, que es la clave `UNIQUE`
  * del catálogo (FR-02, FR-08).
  *
- * El orden de los pasos no es negociable: plegar → mover el artículo pospuesto al frente
- * → quitar puntuación → colapsar espacios. La detección del artículo pospuesto necesita
- * la coma, así que la puntuación se quita **después**.
+ * El orden de los pasos no es negociable: plegar → **recortar la cola sin letras ni
+ * dígitos** → mover el artículo pospuesto al frente → quitar puntuación → colapsar
+ * espacios. La detección del artículo pospuesto necesita la coma, así que la puntuación
+ * interna se quita **después**; la del final, en cambio, tiene que irse **antes**, porque es
+ * justamente lo que separaba al artículo del `$` que el patrón exige.
  *
  * Consecuencia deliberada: `"Principito, El"` y `"El Principito"` normalizan los dos a
  * `"el principito"` y son el mismo libro (AC-03); `"El Aleph"` y `"Aleph"` normalizan a
  * `"el aleph"` y `"aleph"` y son libros distintos. El artículo se **mueve**, no se borra.
  *
- * **Límite conocido del reordenamiento.** El patrón exige que el artículo sea lo último del
- * texto (`$`), y la puntuación se quita *después*: si algo separa al artículo del final, el
- * reordenamiento no ocurre y el título entra con otra identidad.
+ * **La puntuación final no es parte de la identidad** (FR-10, AC-13). Los tres casos que
+ * FEAT-001a dejaba entrar como libros distintos hoy son el mismo:
  *
  * ```
  * "Principito, El"    → "el principito"
- * "Principito, El."   → "principito el"     ← otra identidad, mismo libro
- * '"Principito, El"'  → "principito el"     ← típico de un pegado de Excel
+ * "Principito, El."   → "el principito"
+ * '"Principito, El"'  → "el principito"     ← el pegado de Excel
+ * "Principito, El ."  → "el principito"     ← con espacio antes del punto
  * ```
  *
- * Es el único caso en el que el `UNIQUE` de `titulo_normalizado` no protege: son dos claves
- * distintas, así que el mismo libro se puede dar de alta dos veces. El patrón se deja
- * anclado en `$` porque la spec lo especifica así (`, <artículo>` **al final** del título);
- * cambiarlo es una decisión de producto, no de implementación.
- *
- * Quien consuma esta identidad son los dos flujos de Excel de FEAT-001b —actualización de
- * precios y alta masiva—, que es donde el pegado sucio llega en volumen: si el caso se
- * vuelve un problema real, se resuelve ahí o enmendando la spec, no silenciosamente acá.
+ * **El recorte no autoriza a desanclar el patrón.** Sacarle el `$` a `ARTICULO_POSPUESTO`
+ * cerraría AC-13 por el camino equivocado: `"Casa, La de Bernarda"` pasaría a reordenarse y
+ * quedaría como `"la casa de bernarda"`, o sea la misma identidad que un libro distinto. El
+ * `$` se queda; lo que cambia es qué hay antes de él.
  *
  * No lanza: sobre una cadena vacía devuelve cadena vacía, que rechazan el `CHECK` del
  * esquema y la validación del repositorio. Una función pura que lanza obliga a envolverla
  * en `try` y el motivo del rechazo se pierde por el camino.
  */
 export function normalizarTitulo(titulo: string): string {
-  const plegado = plegarTexto(titulo);
+  const plegado = plegarTexto(titulo).replace(COLA_SIN_LETRAS_NI_DIGITOS, '');
 
   const pospuesto = ARTICULO_POSPUESTO.exec(plegado);
   const conArticuloAlFrente =
