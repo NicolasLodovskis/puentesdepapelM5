@@ -68,6 +68,31 @@ const SQL_BUSCAR_ACTIVOS = `
    ORDER BY titulo_orden
 `;
 
+/**
+ * La lectura de un libro por su clave primaria (FR-01).
+ *
+ * Vive acá y no en `libros.ts`: éste es el módulo de lectura. El `SQL_LEER_LIBRO` de aquel es un
+ * helper privado de post-`INSERT` que relee la fila recién escrita dentro de su propia
+ * transacción, **sin filtro de estado**; reusarlo para la vista de detalle mostraría los libros
+ * archivados el día que exista la baja lógica.
+ *
+ * El `estado = 'activo'` no es decoración: es la única de las tres reglas de la guardia de este
+ * archivo que ningún test de negocio cubre hoy (riesgo R6). Un libro archivado tiene que ser
+ * indistinguible de uno inexistente, y por eso la sentencia filtra en vez de que lo haga el
+ * llamador.
+ *
+ * **No lleva `ORDER BY`**, y es la excepción que la guardia de este módulo reconoce por su
+ * filtro de clave primaria: ordenar una sentencia que devuelve una fila es escribir un `ORDER BY`
+ * de adorno.
+ */
+const SQL_LIBRO_POR_ID = `
+  SELECT id, titulo, titulo_normalizado, titulo_orden, editorial, editorial_normalizada,
+         stock, precio, estado, creado_en
+    FROM libros
+   WHERE estado = 'activo'
+     AND id = ?
+`;
+
 /** Una fila de `libros` como la devuelve SQLite: columnas en snake_case. */
 interface FilaLibro {
   id: number;
@@ -167,4 +192,25 @@ export function buscarLibros(
   const patron = `%${escaparComodines(acotado)}%`;
 
   return (db.prepare(SQL_BUSCAR_ACTIVOS).all(patron, patron) as FilaLibro[]).map(aLibro);
+}
+
+/**
+ * Devuelve el libro **activo** con ese id, o `undefined` (FR-01).
+ *
+ * El `undefined` cubre los dos casos —no existe, o está archivado— y la ruta responde lo mismo a
+ * los dos: la vista de detalle no distingue "no está" de "no se muestra". Que un archivado dé lo
+ * mismo que un inexistente es una decisión escrita, y PRD-001 RF-25 (consulta de archivados) va a
+ * chocar contra ella: ese día la lectura de archivados entra por otra función con su propio
+ * filtro, no aflojando ésta.
+ *
+ * Recibe un `number` ya validado: el segmento de la URL lo valida la ruta **antes** de llegar
+ * acá (M1). El parámetro viaja ligado por `?`, nunca interpolado.
+ *
+ * Un fallo de la consulta se propaga sin capturar, igual que en la búsqueda: es un fallo de
+ * infraestructura y devolver `undefined` lo haría pasar por "ese libro no existe".
+ */
+export function leerLibroPorId(id: number, db: Database.Database = obtenerDb()): Libro | undefined {
+  const fila = db.prepare(SQL_LIBRO_POR_ID).get(id) as FilaLibro | undefined;
+
+  return fila === undefined ? undefined : aLibro(fila);
 }

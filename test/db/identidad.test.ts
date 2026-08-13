@@ -239,10 +239,11 @@ describe('recálculo de identidad (migración 003, FR-11)', () => {
         { titulo: 'El Aleph', titulo_normalizado: 'el aleph' },
       ]);
       expect(version(db)).toBe(ULTIMA_VERSION);
-      // **Éste es el único test que ejercita el upgrade real**: una base v1 —la que ya tiene
-      // instalada la librería con FEAT-001a— subiendo a v3. `baseDePrueba()` migra desde 0, así
-      // que sin esta línea una migración que se saltee por un `numero` repetido dejaría la base
-      // en v3 sin `ventas` y ningún test lo vería.
+      // **Ésta es la única aserción que mira la tabla de la 002 sobre un upgrade real**: una base
+      // v1 —la que ya tiene instalada la librería con FEAT-001a— subiendo a v3. Varios tests de
+      // este archivo recorren ese upgrade, pero todos miran la identidad; `baseDePrueba()`, en
+      // cambio, migra desde 0. Sin esta línea, una migración que se saltee por un `numero`
+      // repetido dejaría la base en v3 sin `ventas` y ningún test lo vería.
       expect(tablas(db)).toContain('ventas');
     } finally {
       db.close();

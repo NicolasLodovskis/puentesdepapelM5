@@ -691,6 +691,18 @@ describe('convenciones de lib/db', () => {
     expect(traidasDeModulos(multilinea)[0]).not.toMatch(/^(import|export) type /u);
   });
 
+  /**
+   * Los archivos de migración, **derivados del recorrido** y no escritos a mano.
+   *
+   * La lista en positivo tenía el mismo defecto que tuvo la de `server-only`: una migración
+   * nueva que nadie agregara acá no la miraba ninguna de las guardias de M9 —ni la de
+   * interpolación ni la de concatenación—, y su modo de falla era el silencio. Derivarla del
+   * recorrido las hace obligatorias desde que el archivo existe.
+   */
+  const ARCHIVOS_DE_MIGRACION = modulos.filter((relativo) =>
+    /migraciones[/\\]\d+-/u.test(relativo),
+  );
+
   it('toda migración del directorio está dada de alta en MIGRACIONES', async () => {
     // Un archivo `NNN-*.ts` que nadie registra es una migración que no corre: el `server-only` lo
     // adopta la guardia derivada de arriba, y hasta acá no había nada que notara la ausencia. La
@@ -698,7 +710,7 @@ describe('convenciones de lib/db', () => {
     // repetido en la lista: `[1, 1, 3]` contra los archivos `[1, 2, 3]`.
     const { MIGRACIONES } = await import('@/lib/db/migraciones');
 
-    const archivos = modulos.filter((relativo) => /migraciones[/\\]\d+-/u.test(relativo));
+    const archivos = ARCHIVOS_DE_MIGRACION;
     expect(archivos.length, 'no se encontró ningún archivo de migración').toBeGreaterThan(0);
 
     const numerosDeArchivo = archivos.map((relativo) => {
@@ -718,11 +730,6 @@ describe('convenciones de lib/db', () => {
     );
   });
 
-  const MIGRACIONES_NUEVAS = [
-    'lib/db/migraciones/002-ventas.ts',
-    'lib/db/migraciones/003-identidad.ts',
-  ];
-
   /**
    * Los template literals del archivo que contienen SQL.
    *
@@ -737,7 +744,7 @@ describe('convenciones de lib/db', () => {
     );
   }
 
-  it.each(MIGRACIONES_NUEVAS)('%s no interpola nada dentro de su SQL (M9)', (relativo) => {
+  it.each(ARCHIVOS_DE_MIGRACION)('%s no interpola nada dentro de su SQL (M9)', (relativo) => {
     const fuente = fs.readFileSync(path.join(process.cwd(), relativo), 'utf8');
     const literales = literalesDeSql(fuente);
 
@@ -751,48 +758,51 @@ describe('convenciones de lib/db', () => {
     }
   });
 
-  it.each(MIGRACIONES_NUEVAS)('%s no arma ninguna sentencia por concatenación (M9)', (relativo) => {
-    // La otra mitad, y va sobre la **declaración** de cada constante `SQL_*`, no sobre el sitio de
-    // la llamada: mirar el `prepare()` no dice cómo se armó la constante, y
-    // `const SQL_X = ` + COLUMNA + ` = ?`;` pasa un `prepare(SQL_X)` impecable con una columna que
-    // vino de afuera. Lo que se exige es que el lado derecho sea **un único template literal**:
-    // arranca en backtick y el punto y coma va inmediatamente después del backtick que lo cierra.
-    //
-    // Sigue sin buscarse un `+` dentro del SQL: la aritmética legítima —el `stock - 1` que llega
-    // con el Block 4— es SQL válido y daría un falso positivo.
-    const fuente = fs.readFileSync(path.join(process.cwd(), relativo), 'utf8');
-    const patron = /const\s+(SQL_\w+)\s*=\s*/gu;
-    let declaraciones = 0;
-    let encontrado = patron.exec(fuente);
+  it.each(ARCHIVOS_DE_MIGRACION)(
+    '%s no arma ninguna sentencia por concatenación (M9)',
+    (relativo) => {
+      // La otra mitad, y va sobre la **declaración** de cada constante `SQL_*`, no sobre el sitio de
+      // la llamada: mirar el `prepare()` no dice cómo se armó la constante, y
+      // `const SQL_X = ` + COLUMNA + ` = ?`;` pasa un `prepare(SQL_X)` impecable con una columna que
+      // vino de afuera. Lo que se exige es que el lado derecho sea **un único template literal**:
+      // arranca en backtick y el punto y coma va inmediatamente después del backtick que lo cierra.
+      //
+      // Sigue sin buscarse un `+` dentro del SQL: la aritmética legítima —el `stock - 1` que llega
+      // con el Block 4— es SQL válido y daría un falso positivo.
+      const fuente = fs.readFileSync(path.join(process.cwd(), relativo), 'utf8');
+      const patron = /const\s+(SQL_\w+)\s*=\s*/gu;
+      let declaraciones = 0;
+      let encontrado = patron.exec(fuente);
 
-    while (encontrado !== null) {
-      const nombre = `${relativo} → ${encontrado[1]}`;
-      const inicio = encontrado.index + encontrado[0].length;
+      while (encontrado !== null) {
+        const nombre = `${relativo} → ${encontrado[1]}`;
+        const inicio = encontrado.index + encontrado[0].length;
 
-      expect(fuente[inicio], `${nombre}: no arranca con un template literal`).toBe('`');
+        expect(fuente[inicio], `${nombre}: no arranca con un template literal`).toBe('`');
 
-      const cierre = fuente.indexOf('`', inicio + 1);
-      expect(cierre, `${nombre}: el template literal no cierra`).toBeGreaterThan(inicio);
-      expect(
-        fuente.slice(cierre + 1, cierre + 2),
-        `${nombre}: sigue algo después del literal`,
-      ).toBe(';');
+        const cierre = fuente.indexOf('`', inicio + 1);
+        expect(cierre, `${nombre}: el template literal no cierra`).toBeGreaterThan(inicio);
+        expect(
+          fuente.slice(cierre + 1, cierre + 2),
+          `${nombre}: sigue algo después del literal`,
+        ).toBe(';');
 
-      declaraciones += 1;
-      encontrado = patron.exec(fuente);
-    }
+        declaraciones += 1;
+        encontrado = patron.exec(fuente);
+      }
 
-    // Meta-guardia doble: hay declaraciones que mirar, y **toda** sentencia SQL del archivo sale
-    // de una de ellas. Sin la segunda mitad, un literal de SQL declarado con otro nombre —o
-    // suelto dentro de una función— quedaría fuera de esta guardia sin que nada lo diga.
-    expect(declaraciones, relativo).toBeGreaterThan(0);
-    expect(literalesDeSql(fuente).length, relativo).toBe(declaraciones);
+      // Meta-guardia doble: hay declaraciones que mirar, y **toda** sentencia SQL del archivo sale
+      // de una de ellas. Sin la segunda mitad, un literal de SQL declarado con otro nombre —o
+      // suelto dentro de una función— quedaría fuera de esta guardia sin que nada lo diga.
+      expect(declaraciones, relativo).toBeGreaterThan(0);
+      expect(literalesDeSql(fuente).length, relativo).toBe(declaraciones);
 
-    // Y el sitio de la llamada sigue afirmado: `prepare()` recibe una constante y nada más.
-    for (const llamada of fuente.match(/\.prepare\([^)]*\)/gu) ?? []) {
-      expect(llamada, relativo).toMatch(/^\.prepare\([A-Z_][A-Z0-9_]*\)$/u);
-    }
-  });
+      // Y el sitio de la llamada sigue afirmado: `prepare()` recibe una constante y nada más.
+      for (const llamada of fuente.match(/\.prepare\([^)]*\)/gu) ?? []) {
+        expect(llamada, relativo).toMatch(/^\.prepare\([A-Z_][A-Z0-9_]*\)$/u);
+      }
+    },
+  );
 });
 
 /**

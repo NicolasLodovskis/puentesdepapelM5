@@ -1,16 +1,23 @@
+import type { ReactElement } from 'react';
+
+import { esColisionDeIdentidad } from '@/lib/db/errores';
+
 import { MENSAJE_COLISION_DE_IDENTIDAD, TITULO_CATALOGO_SIN_MIGRAR } from './mensajes';
 
 /**
  * Pantalla del catálogo que no se pudo migrar por colisiones de identidad (FR-11, AC-16).
  *
- * **Todavía no la ve nadie, y el docstring no va a decir que sí.** Hoy ninguna ruta la renderiza:
- * ante la colisión, el camino real es `app/page.tsx` → `buscarLibros()` → `obtenerDb()` →
- * `migrar()` lanza → lo atrapa el límite de error de la ruta, que muestra su constante genérica.
- * Lo que este bloque entrega es **el componente y su texto curado**; el cableado —que la ruta
- * distinga el catálogo sin migrar y renderice esto en vez del listado— llega con el Block 3 de
- * `spec-FEAT-001b.md`, que es el que tiene `app/page.tsx` entre sus archivos y donde la spec dice
- * que esta pantalla «condiciona qué se renderiza en cualquier ruta» (FR-01). Hasta entonces, lo
- * que sigue abajo describe **para qué** es esta pantalla, no lo que la usuaria ve hoy.
+ * **Quién la renderiza.** El Block 2 entregó el componente y su texto curado, y durante ese
+ * bloque no la mostraba nadie: ante la colisión el camino real era `app/page.tsx` →
+ * `buscarLibros()` → `obtenerDb()` → `migrar()` lanza → lo atrapaba el límite de error de la
+ * ruta, que muestra su constante genérica. El cableado lo cierra el Block 3, en las **dos** rutas
+ * que leen la base: `app/page.tsx` y `app/libros/[id]/page.tsx` resuelven el fallo con
+ * `resolverFalloDelCatalogo()` —acá abajo— y renderizan esto en vez del listado, que es lo que la
+ * spec quiere decir con que esta pantalla «condiciona qué se renderiza en cualquier ruta».
+ *
+ * `app/page.tsx` **no figura** en la lista de archivos que la spec le da al Block 3: es un desvío
+ * declarado y autorizado por la usuaria, y como tal se informa en la verificación. Sin él, AC-16
+ * quedaba con su componente escrito y su texto sin mostrarse nunca.
  *
  * **Por qué es una pantalla propia y no `app/error.tsx`.** El límite de error de la ruta muestra
  * una constante genérica —"No se pudo mostrar el catálogo"— porque lo que llega ahí es un fallo
@@ -34,4 +41,38 @@ export function EstadoDelCatalogo() {
       <p>{MENSAJE_COLISION_DE_IDENTIDAD}</p>
     </main>
   );
+}
+
+/**
+ * Resuelve qué pasa cuando la lectura del catálogo falla: **el único** lugar donde se decide.
+ *
+ * **Resuelve, no fabrica.** La función tiene dos mitades y una de ellas **relanza**, así que el
+ * nombre no puede leerse como una fábrica pura: en el sitio de la llamada hay que ver que esto
+ * puede propagar el error. Se llama desde el `catch` de toda pantalla que toque la base:
+ *
+ * ```tsx
+ * try {
+ *   libros = buscarLibros(termino);
+ * } catch (error) {
+ *   return resolverFalloDelCatalogo(error);
+ * }
+ * ```
+ *
+ * Vive acá y no copiado en cada ruta porque las dos mitades se escriben mal por separado: la
+ * colisión de identidad es una condición conocida con su pantalla propia (AC-16), y **cualquier
+ * otro fallo se relanza** —sigue siendo del límite de error de la ruta, y disfrazar un disco
+ * ilegible de colisión de títulos sería un diagnóstico falso en la única pantalla que la usuaria
+ * vería—. Con el `try/catch` copiado en cada ruta, la primera que se olvide de la segunda mitad,
+ * o del `catch` entero, hace reaparecer el bug original —mensaje genérico en vez del texto
+ * curado— sin que nada se ponga rojo. Lo vigila además una guardia: «toda pantalla que toca la
+ * base importa el manejo compartido», en `test/app/detalle.test.ts`.
+ *
+ * Devuelve la pantalla o lanza; nunca devuelve algo que se pueda confundir con "no hay libros".
+ */
+export function resolverFalloDelCatalogo(error: unknown): ReactElement {
+  if (!esColisionDeIdentidad(error)) {
+    throw error;
+  }
+
+  return <EstadoDelCatalogo />;
 }

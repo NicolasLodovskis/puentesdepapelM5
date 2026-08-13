@@ -4,7 +4,7 @@ import path from 'node:path';
 import type Database from 'better-sqlite3';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
-import { buscarLibros } from '@/lib/db/consultas';
+import { buscarLibros, leerLibroPorId } from '@/lib/db/consultas';
 import type { EstadoLibro, Libro } from '@/lib/db/tipos';
 import { normalizarTitulo } from '@/lib/dominio/normalizar-titulo';
 import { plegarTexto } from '@/lib/dominio/plegar-texto';
@@ -44,18 +44,22 @@ interface Semilla {
   estado?: EstadoLibro;
 }
 
-function sembrar(db: Database.Database, semilla: Semilla): void {
-  db.prepare(SQL_SEMBRAR).run(
-    semilla.titulo,
-    normalizarTitulo(semilla.titulo),
-    plegarTexto(semilla.titulo),
-    semilla.editorial,
-    plegarTexto(semilla.editorial),
-    STOCK_SEMILLA,
-    PRECIO_SEMILLA,
-    semilla.estado ?? 'activo',
-    FECHA,
-  );
+function sembrar(db: Database.Database, semilla: Semilla): number {
+  const insercion = db
+    .prepare(SQL_SEMBRAR)
+    .run(
+      semilla.titulo,
+      normalizarTitulo(semilla.titulo),
+      plegarTexto(semilla.titulo),
+      semilla.editorial,
+      plegarTexto(semilla.editorial),
+      STOCK_SEMILLA,
+      PRECIO_SEMILLA,
+      semilla.estado ?? 'activo',
+      FECHA,
+    );
+
+  return Number(insercion.lastInsertRowid);
 }
 
 /**
@@ -361,6 +365,60 @@ describe('buscarLibros()', () => {
   });
 });
 
+describe('leerLibroPorId()', () => {
+  let db: Database.Database;
+
+  beforeEach(() => {
+    db = baseDePrueba();
+  });
+
+  afterEach(() => {
+    db.close();
+  });
+
+  it('devuelve el libro activo con sus diez columnas mapeadas (AC-01, FR-01)', () => {
+    const id = sembrar(db, { titulo: 'Cuentos, Los', editorial: 'Emecé' });
+
+    // El objeto completo, como en la búsqueda: el mapeo fila → `Libro` es explícito y las
+    // columnas TEXT de este fixture difieren entre sí, así que cualquier cruce se ve.
+    expect(leerLibroPorId(id, db)).toEqual({
+      id,
+      titulo: 'Cuentos, Los',
+      tituloNormalizado: 'los cuentos',
+      tituloOrden: 'cuentos, los',
+      editorial: 'Emecé',
+      editorialNormalizada: 'emece',
+      stock: STOCK_SEMILLA,
+      precio: PRECIO_SEMILLA,
+      estado: 'activo',
+      creadoEn: FECHA,
+    });
+  });
+
+  it('devuelve undefined para un id que no existe', () => {
+    const id = sembrar(db, { titulo: 'Rayuela', editorial: 'Sudamericana' });
+
+    expect(leerLibroPorId(id + 1, db)).toBeUndefined();
+
+    // Y el `undefined` no viene de que la función devuelva siempre lo mismo: el id sembrado sí
+    // trae su libro. Sin esta línea, un `return undefined` pelado pasaría el test.
+    expect(leerLibroPorId(id, db)?.titulo).toBe('Rayuela');
+  });
+
+  it('devuelve undefined para un libro archivado, igual que para uno inexistente (M5, R6)', () => {
+    const archivado = sembrar(db, { titulo: 'Zama', editorial: 'Sur', estado: 'archivado' });
+
+    expect(leerLibroPorId(archivado, db)).toBeUndefined();
+
+    // La mitad que hace falsable el filtro: el libro **está** en la tabla, así que lo que
+    // produce el `undefined` es el `estado = 'activo'` y no una fila ausente. Hoy nada archiva,
+    // por eso ningún test de negocio de FEAT-001a se pondría rojo si el filtro faltara.
+    expect(db.prepare('SELECT estado FROM libros WHERE id = ?').get(archivado)).toEqual({
+      estado: 'archivado',
+    });
+  });
+});
+
 describe('convenciones de lib/db/consultas.ts', () => {
   const fuente = fs.readFileSync(path.join(process.cwd(), 'lib/db/consultas.ts'), 'utf8');
 
@@ -419,16 +477,106 @@ describe('convenciones de lib/db/consultas.ts', () => {
     expect(sentencias.length).toBeGreaterThan(0);
   });
 
-  it('filtra estado activo y ordena por titulo_orden en todas sus sentencias', () => {
-    // El criterio de cierre del bloque: *toda* sentencia lleva `estado = 'activo'`. Hoy es un
-    // no-op porque nada archiva, así que ningún test de negocio se pondría rojo si faltara en
-    // una sentencia nueva; este sí.
+  /**
+   * ¿La sentencia filtra por la clave primaria?
+   *
+   * El particionado de la guardia es **sintáctico y mecánico** —la sentencia compara `id` con un
+   * parámetro posicional, o no lo hace— y nunca una lista de nombres exceptuados a mano: una
+   * lista de nombres es un opt-out, y el primer `SQL_` que alguien agregue ahí se lleva puesta la
+   * regla sin que nada se ponga rojo (M5, riesgo R6).
+   *
+   * El lookbehind es el que distingue `id = ?` de `libro_id = ?` y de `l.id = ?`: sin él, una
+   * consulta al historial por libro quedaría exceptuada del `ORDER BY` sin filtrar por clave
+   * primaria. El alias califica **cerrado**: `l.id = ?` sí es un filtro por clave primaria y aun
+   * así se le exige el `ORDER BY`, que es el lado seguro de equivocarse.
+   */
+  const FILTRA_POR_CLAVE_PRIMARIA = /(?<![\w.])id\s*=\s*\?/u;
+
+  /**
+   * La sentencia sin sus comentarios ni sus literales de texto, que es sobre lo que se decide la
+   * excepción.
+   *
+   * Sin esto, la cadena `id = ?` escrita **dentro** de un literal (`WHERE titulo = 'id = ?'`) o de
+   * un comentario exceptuaba a la sentencia del `ORDER BY` sin que filtrara por nada. Es la
+   * dirección peligrosa del error: la guardia **deja de exigir**, en vez de exigir de más.
+   *
+   * Se despejan las **dos** formas de comentario, `--` y `/* … *\/`, porque las dos son válidas en
+   * SQLite y despejar sólo una deja el bypass abierto por la otra. Es el mismo tratamiento —y por
+   * la misma razón— que `sinComentarios()` de `test/convenciones/red.test.ts` le da al fuente de
+   * `next.config.ts`.
+   *
+   * El `[\s\S]*?` es **perezoso** a propósito: con un cuantificador voraz, dos comentarios de
+   * bloque en la misma sentencia se comerían todo el SQL que hubiera entre ellos —incluido un
+   * `id = ?` legítimo—, y la guardia pasaría a exigir de más. Lo fija la última aserción del
+   * meta-guardia del patrón.
+   */
+  function sinComentariosNiLiterales(sentencia: string): string {
+    return sentencia
+      .replace(/\/\*[\s\S]*?\*\//gu, ' ')
+      .replace(/--[^\n]*/gu, ' ')
+      .replace(/'[^']*'/gu, "''");
+  }
+
+  function filtraPorClavePrimaria(sentencia: string): boolean {
+    return FILTRA_POR_CLAVE_PRIMARIA.test(sinComentariosNiLiterales(sentencia));
+  }
+
+  const porClavePrimaria = sentencias.filter((sentencia) => filtraPorClavePrimaria(sentencia));
+  const ordenadas = sentencias.filter((sentencia) => !filtraPorClavePrimaria(sentencia));
+
+  it('filtra estado activo en todas sus sentencias, sin excepción', () => {
+    // La regla que **no** se acota (M5): hoy es un no-op porque nada archiva, así que ningún
+    // test de negocio se pondría rojo si faltara en una sentencia nueva; este sí. Y la
+    // prohibición de ordenar por la identidad tampoco se acota: `titulo_normalizado` mueve el
+    // artículo al frente, así que ordenar por ella pondría `"Cuentos, Los"` entre las L.
     expect(sentencias.length).toBeGreaterThan(0);
     for (const sentencia of sentencias) {
       expect(sentencia).toMatch(/estado = 'activo'/u);
-      expect(sentencia).toMatch(/ORDER BY\s+titulo_orden/u);
       expect(sentencia).not.toMatch(/ORDER BY\s+titulo_normalizado/u);
     }
+  });
+
+  it('ordena por titulo_orden toda sentencia que no filtre por clave primaria', () => {
+    // La única de las tres reglas que se acota, y sólo por lo que estorba: pedirle un `ORDER BY`
+    // a un `WHERE id = ?` no ordena nada —devuelve una fila— y obligaría a escribirlo de adorno.
+    for (const sentencia of ordenadas) {
+      expect(sentencia).toMatch(/ORDER BY\s+titulo_orden/u);
+    }
+  });
+
+  it('no deja vacío el conjunto de sentencias que sí deben ordenar', () => {
+    // Meta-guardia del particionado (M5): un patrón demasiado ancho —`/id/`, o el lookbehind
+    // borrado— exceptuaría a **todas** las sentencias y la guardia de arriba pasaría en silencio
+    // sin haber mirado ninguna. Se exige además que la excepción exista de verdad: si nadie
+    // filtrara por clave primaria, acotar la regla no tendría motivo y habría que revertirlo.
+    expect(ordenadas.length).toBeGreaterThan(0);
+    expect(porClavePrimaria.length).toBeGreaterThan(0);
+  });
+
+  it('reconoce el filtro por clave primaria y sólo ése', () => {
+    // Meta-guardia del patrón, contra literales y no contra el archivo: reescribir una sentencia
+    // no debe mover este test, y un patrón que mordiera `libro_id` o `estado` exceptuaría del
+    // `ORDER BY` a sentencias que sí ordenan.
+    expect(filtraPorClavePrimaria('WHERE id = ?')).toBe(true);
+    expect(filtraPorClavePrimaria("WHERE estado = 'activo'\n AND id = ?")).toBe(true);
+    expect(filtraPorClavePrimaria('WHERE libro_id = ?')).toBe(false);
+    expect(filtraPorClavePrimaria('WHERE l.id = ?')).toBe(false);
+
+    // Y las **tres** formas en que la cadena aparece sin ser un filtro: dentro de un literal de
+    // texto, dentro de un comentario de línea y dentro de un comentario de bloque. Las tres
+    // exceptuaban de más, y el `/* */` era el que quedaba: es comentario válido en SQLite, así que
+    // `/* id = ? */` disfrazaba una sentencia sin `ORDER BY` y sin filtro por clave primaria
+    // mientras `-- id = ?` daba rojo. El modelo del despeje es `sinComentarios()` de
+    // `test/convenciones/red.test.ts`, que ya trataba las dos formas de comentario.
+    expect(filtraPorClavePrimaria("WHERE titulo = 'id = ?'")).toBe(false);
+    expect(filtraPorClavePrimaria('-- id = ?\n WHERE estado = 3')).toBe(false);
+    expect(filtraPorClavePrimaria('/* id = ? */ WHERE estado = 3')).toBe(false);
+    // Sin dejar ciego al filtro de verdad cuando conviven con él.
+    expect(filtraPorClavePrimaria("-- busca por id\n WHERE titulo = 'x' AND id = ?")).toBe(true);
+    // Y el despeje de bloque no se puede comer el SQL que hay entre dos comentarios: con un
+    // cuantificador voraz, este filtro legítimo desaparecería y la guardia exigiría de más.
+    expect(filtraPorClavePrimaria('/* uno */ WHERE id = ? /* dos */')).toBe(true);
+    expect(filtraPorClavePrimaria("WHERE estado = 'activo' ORDER BY titulo_orden")).toBe(false);
   });
 
   it('declara ESCAPE en toda sentencia con LIKE', () => {

@@ -44,6 +44,48 @@ export const MENSAJE_ERROR_INESPERADO =
 /** Texto de la página de error de la ruta. Tampoco dice nada del error real. */
 export const MENSAJE_ERROR_DE_PANTALLA = 'No se pudo mostrar el catálogo.';
 
+/**
+ * Encabezado de la respuesta 404.
+ *
+ * Vive acá, junto a sus hermanos exactos —el texto del límite de error y los dos de la pantalla
+ * del catálogo sin migrar—, y no en el componente que lo pinta: dos lugares donde buscar el texto
+ * de una pantalla es cómo se termina con dos textos para lo mismo.
+ *
+ * Es el mismo mensaje para los **tres** motivos que producen un 404 —el id no es un entero
+ * positivo, el libro no existe, el libro está archivado— a propósito: distinguirlos convertiría
+ * la respuesta en un canal para averiguar cuántos libros hay y cuáles fueron archivados
+ * (riesgo R2, mitigación 8).
+ */
+export const MENSAJE_LIBRO_INEXISTENTE = 'Este libro no está en el catálogo.';
+
+/**
+ * Formato de miles en castellano. **Una sola instancia para toda la interfaz**: construir un
+ * `Intl.NumberFormat` dentro de un `map` serían 2.000 construcciones por renderizado del
+ * catálogo.
+ */
+const MILES = new Intl.NumberFormat('es-AR', { maximumFractionDigits: 0 });
+
+/**
+ * El precio, como lo lee la usuaria.
+ *
+ * Está acá y no en cada pantalla porque el listado y el detalle muestran **el mismo** precio del
+ * **mismo** libro: con una copia por pantalla, la divergencia —`$ 9.500` en una y `$9500` en la
+ * otra— deja verdes los tests de las dos, que fijan su propio literal por separado. Es la misma
+ * razón por la que la identidad de un libro la produce una sola función (Block 1), un piso más
+ * arriba.
+ *
+ * Los precios son enteros por invariante del esquema (`CHECK (precio > 0)` sobre una columna
+ * INTEGER), así que no hay decimales que mostrar ni que redondear.
+ */
+export function formatearPrecio(precio: number): string {
+  return `$ ${MILES.format(precio)}`;
+}
+
+/** Una cantidad de cosas —libros, ejemplares—, con el mismo separador de miles y sin el signo. */
+export function formatearCantidad(cantidad: number): string {
+  return MILES.format(cantidad);
+}
+
 /** Encabezado de la pantalla del catálogo que no se pudo migrar. */
 export const TITULO_CATALOGO_SIN_MIGRAR = 'El catálogo no se pudo abrir.';
 
