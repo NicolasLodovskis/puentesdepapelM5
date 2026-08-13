@@ -2,10 +2,15 @@ import 'server-only';
 
 import type Database from 'better-sqlite3';
 
-import { MIGRACIONES } from './migraciones';
+import { llevaUnaSolaMitad, MIGRACIONES } from './migraciones';
 
 /**
  * Aplica las migraciones pendientes según `PRAGMA user_version`.
+ *
+ * Una migración es **o** un SQL de esquema **o** un paso de lógica (`Migracion` es una unión
+ * discriminada, ver `lib/db/migraciones/index.ts`). El paso de lógica corre en esta misma
+ * transacción y con esta misma conexión: si lanza, revierte junto con todo lo anterior y
+ * `user_version` queda donde estaba.
  *
  * Leer la versión, aplicar y escribirla ocurre todo dentro de un `BEGIN IMMEDIATE`:
  * fuera de la transacción sería un check-then-act y dos procesos podrían aplicar la
@@ -24,7 +29,25 @@ export function migrar(db: Database.Database): void {
 
     let versionNueva = versionActual;
     for (const migracion of pendientes) {
-      db.exec(migracion.sql);
+      // La forma degenerada no la ve el compilador cuando la migración llega por un `as`, desde
+      // JavaScript o desde un mock, y su modo de falla es callado: con las dos mitades se
+      // aplicaría sólo el SQL y el paso de lógica no correría, con `user_version` avanzando
+      // igual. Se comprueba antes de aplicar nada.
+      if (!llevaUnaSolaMitad(migracion)) {
+        throw new Error(
+          `La migración ${String(migracion.numero)} no lleva exactamente una mitad: ` +
+            'una migración es o un SQL de esquema o un paso de lógica.',
+        );
+      }
+
+      // Se discrimina por el valor y no con `'sql' in migracion`: cada miembro de la unión
+      // declara la mitad del otro como `?: never`, así que la clave puede estar presente en los
+      // dos y el `in` no estrecha a `string`.
+      if (migracion.sql !== undefined) {
+        db.exec(migracion.sql);
+      } else {
+        migracion.aplicar(db);
+      }
       versionNueva = migracion.numero;
     }
 

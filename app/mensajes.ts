@@ -44,6 +44,26 @@ export const MENSAJE_ERROR_INESPERADO =
 /** Texto de la página de error de la ruta. Tampoco dice nada del error real. */
 export const MENSAJE_ERROR_DE_PANTALLA = 'No se pudo mostrar el catálogo.';
 
+/** Encabezado de la pantalla del catálogo que no se pudo migrar. */
+export const TITULO_CATALOGO_SIN_MIGRAR = 'El catálogo no se pudo abrir.';
+
+/**
+ * Aviso de que el recálculo de identidad encontró colisiones (AC-16).
+ *
+ * **No enumera los libros en conflicto**: ni títulos, ni ids, ni cuántos son, ni el texto del
+ * motor, ni la ruta del archivo de la base (mitigaciones 7 y 8). Que el sistema informe que hay
+ * colisiones y no cuáles es una decisión escrita de la usuaria, con su riesgo aceptado: los
+ * pares se recuperan a mano sobre la columna de identidad, y el recálculo corre antes de que
+ * entre el inventario real.
+ *
+ * Dice además las dos cosas que la usuaria necesita para decidir qué hacer: que no se modificó
+ * nada, y que el catálogo no va a abrir hasta que los títulos repetidos queden en uno solo.
+ */
+export const MENSAJE_COLISION_DE_IDENTIDAD =
+  'Al unificar los títulos que se diferencian sólo por la puntuación del final, dos o más ' +
+  'libros quedaron con la misma identidad. No se modificó ningún libro ni ninguna entrada de ' +
+  'historial. Hay que revisar los títulos repetidos y dejar uno solo para poder abrir el catálogo.';
+
 /**
  * Salida de emergencia de la traducción.
  *
