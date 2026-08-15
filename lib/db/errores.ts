@@ -1,6 +1,6 @@
 import type { MotivoPrecio } from '@/lib/dominio/parsear-precio';
 
-import type { Libro } from './tipos';
+import type { Libro, Venta } from './tipos';
 
 /**
  * Tipos de resultado del repositorio.
@@ -69,6 +69,22 @@ export type ResultadoCrearLibro =
   | { ok: true; libro: Libro }
   | { ok: false; motivo: 'campos_invalidos'; errores: ErrorCampo[] }
   | { ok: false; motivo: 'titulo_duplicado'; conflicto: LibroEnConflicto };
+
+/**
+ * Resultado de una venta: unión discriminada de tres variantes (FR-02, AC-02, AC-03).
+ *
+ * `venderEjemplar()` **no lanza por una condición de negocio**, igual que el alta: el stock 0 y el
+ * libro que no está son valores de retorno. Sólo se propaga un fallo de infraestructura, que la
+ * Server Action traduce a un mensaje genérico (M8).
+ *
+ * Los dos rechazos **no llevan payload**: no hace falta ninguno. `sin_stock` lo explica la pantalla
+ * a partir del stock vigente —que ya muestra—, y `libro_inexistente` se responde con un 404
+ * indistinguible del de un id que no es un id, que es la decisión escrita del Block 3 (riesgo R2).
+ */
+export type ResultadoVender =
+  | { ok: true; venta: Venta }
+  | { ok: false; motivo: 'sin_stock' }
+  | { ok: false; motivo: 'libro_inexistente' };
 
 /**
  * El error del recálculo de identidad cuando dos o más libros pasan a compartirla (FR-11).

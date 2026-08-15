@@ -1,6 +1,6 @@
 import type { Libro } from '@/lib/db/tipos';
 
-import { formatearCantidad, formatearPrecio } from '../mensajes';
+import { formatearCantidad, formatearPrecio, rutaDelDetalle, TEXTO_VENDER } from '../mensajes';
 
 /**
  * El catálogo, como tabla.
@@ -46,6 +46,7 @@ export function ListadoLibros({ libros }: PropsListado) {
           <th scope="col">Stock</th>
           <th scope="col">Precio</th>
           <th scope="col">Detalle</th>
+          <th scope="col">Venta</th>
         </tr>
       </thead>
       <tbody>
@@ -75,7 +76,27 @@ export function ListadoLibros({ libros }: PropsListado) {
               regla `@next/next/no-html-link-for-pages` para las rutas estáticas.
             */}
             <td data-campo="detalle">
-              <a href={`/libros/${String(libro.id)}`}>Ver</a>
+              <a href={rutaDelDetalle(libro.id)}>Ver</a>
+            </td>
+            {/*
+              El control de venta de la fila **no vende**: lleva al detalle, donde la venta queda
+              pendiente de confirmación (AC-17). Un click de más acá no descuenta stock ni registra
+              una venta que después no se puede deshacer (riesgo aceptado A3).
+
+              Es un `<a>` y no un `<button>` que invoque el Server Action —eso sería la venta a un
+              click, exactamente lo que AC-17 prohíbe— y tampoco un `<form method="get">`, que
+              navega igual pero pierde lo que un enlace da gratis: click del medio, abrir en pestaña
+              nueva, copiar la dirección, y que un lector de pantalla anuncie un enlace en vez de un
+              botón que no envía nada.
+
+              **Comparte destino con el enlace de al lado, y está bien que lo comparta**: los dos
+              llevan al detalle porque ahí es donde se confirma la venta. Lo que AC-17 pide es que
+              el control sea distinguible del de ver, y lo son por su celda y por su texto —"Ver" y
+              "Vender"—, no por su URL. Sigue sin haber un byte de JavaScript de cliente por fila
+              (M11): son dos anclas, no dos componentes.
+            */}
+            <td data-campo="venta">
+              <a href={rutaDelDetalle(libro.id)}>{TEXTO_VENDER}</a>
             </td>
           </tr>
         ))}

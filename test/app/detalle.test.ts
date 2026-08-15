@@ -207,9 +207,23 @@ function operaciones(html: string): string[] {
   return Array.from(html.matchAll(/data-operacion="([^"]+)"/gu), (coincidencia) => coincidencia[1]);
 }
 
-/** Los destinos de los enlaces al detalle que trae el HTML, en orden de aparición. */
+/**
+ * Los destinos de los enlaces **de la celda "Detalle"** de cada fila, en orden de aparición.
+ *
+ * El extractor está acotado a esa celda a propósito. Sin acotar, afirmaba "hay exactamente un ancla
+ * a `/libros/…` en toda la fila", que es más de lo que FR-01 pide —"que el detalle sea alcanzable
+ * desde su fila"— y de lo que el test que lo usa dice comprobar: con eso, el control de venta que
+ * AC-17 exige en la misma fila ponía roja una aserción sobre otra cosa. Acotado, la afirmación es
+ * exactamente la que el test enuncia, y sigue poniéndose roja si una fila deja de enlazar a su
+ * detalle o si enlaza al del libro equivocado.
+ */
 function enlacesAlDetalle(html: string): string[] {
-  return Array.from(html.matchAll(/href="(\/libros\/[^"]*)"/gu), (coincidencia) => coincidencia[1]);
+  return Array.from(
+    html.matchAll(/<td[^>]*data-campo="detalle"[^>]*>([\s\S]*?)<\/td>/gu),
+    (celda) => celda[1],
+  ).flatMap((celda) =>
+    Array.from(celda.matchAll(/href="(\/libros\/[^"]*)"/gu), (coincidencia) => coincidencia[1]),
+  );
 }
 
 const LIBRO: Libro = {
@@ -385,47 +399,79 @@ describe('la fila del listado lleva al detalle (FR-01)', () => {
     expect(fuente).not.toMatch(/from\s+['"]next\/link['"]/u);
   });
 
-  it('tampoco lo gana por un componente propio que lo traiga (M11, un nivel)', () => {
+  it('tampoco lo gana por la cadena de módulos que usa, a cualquier profundidad (M11)', () => {
     // La cadena indirecta: un componente de celda propio que importe `next/link`, usado por fila,
     // reintroduce los 2.000 componentes cliente con la guardia de arriba verde, el linter limpio y
     // el bench ciego por diseño. Exige un archivo nuevo deliberado, así que no es el camino de un
     // descuido —pero los bloques 4 y 5 le agregan a la fila el control de venta (AC-17), que es
     // exactamente el momento en que alguien extrae un componente de celda.
     //
-    // Se mira **un nivel**: lo que el listado importa. Más profundo haría falta resolver el grafo
-    // entero, y el nivel siguiente ya tiene que pasar por acá.
+    // El recorrido es **transitivo** y no de un nivel. Mirar un nivel dejaba pasar la cadena
+    // `listado → celda → enlaces/index.ts → enlace-ver.tsx`: dos saltos y un barrel, con la suite
+    // entera en verde —nada más en ella mira `next/link`— y el prefetch de vuelta en 2.000 filas.
+    // Es un `while` con lista de pendientes alrededor de la misma resolución de antes, así que no
+    // cuesta más que eso; los ciclos los corta `vistos`.
     const relativoDelListado = path.join('app', 'componentes', 'listado-libros.tsx');
-    const fuente = fs.readFileSync(path.join(process.cwd(), relativoDelListado), 'utf8');
 
-    /** Los módulos del proyecto que el listado importa, resueltos a archivo. */
-    const importados = Array.from(fuente.matchAll(/from\s+['"]([^'"]+)['"]/gu), (c) => c[1])
-      .map((especificador) =>
-        especificador.startsWith('@/')
-          ? path.join(process.cwd(), especificador.slice(2))
-          : especificador.startsWith('.')
-            ? path.join(process.cwd(), path.dirname(relativoDelListado), especificador)
-            : '',
-      )
-      .flatMap((base) =>
-        base === ''
-          ? []
-          : ['.tsx', '.ts']
-              .map((extension) => `${base}${extension}`)
-              .filter((archivo) => fs.existsSync(archivo)),
+    /**
+     * Un especificador del proyecto resuelto a archivo; los paquetes externos quedan afuera.
+     *
+     * Se prueban también `index.ts` e `index.tsx`, porque un barrel es la forma en que la cadena se
+     * alarga sin que aparezca un archivo nuevo en el `import` —el import dice `./enlaces` y el
+     * `next/link` vive dos archivos más abajo—.
+     */
+    function resolver(especificador: string, desde: string): string[] {
+      const base = especificador.startsWith('@/')
+        ? path.join(process.cwd(), especificador.slice(2))
+        : especificador.startsWith('.')
+          ? path.join(process.cwd(), path.dirname(desde), especificador)
+          : '';
+
+      if (base === '') {
+        return [];
+      }
+
+      return ['.tsx', '.ts', path.join(path.sep, 'index.tsx'), path.join(path.sep, 'index.ts')]
+        .map((sufijo) => `${base}${sufijo}`)
+        .filter((archivo) => fs.existsSync(archivo) && fs.statSync(archivo).isFile())
+        .map((archivo) => path.relative(process.cwd(), archivo));
+    }
+
+    function importadosDe(relativo: string): string[] {
+      const fuente = fs.readFileSync(path.join(process.cwd(), relativo), 'utf8');
+
+      return Array.from(fuente.matchAll(/from\s+['"]([^'"]+)['"]/gu), (c) => c[1]).flatMap(
+        (especificador) => resolver(especificador, relativo),
       );
+    }
 
-    // Meta-guardia de la resolución: con la lista vacía este test no mira nada. `app/mensajes.ts`
-    // es lo que el listado importa hoy además del tipo `Libro`.
-    expect(importados.map((archivo) => path.relative(process.cwd(), archivo))).toContain(
-      path.join('app', 'mensajes.ts'),
-    );
+    const vistos = new Set<string>();
+    const pendientes = [relativoDelListado];
 
-    for (const importado of importados) {
-      const dependencia = fs.readFileSync(importado, 'utf8');
-      const relativo = path.relative(process.cwd(), importado);
+    while (pendientes.length > 0) {
+      const actual = pendientes.pop() as string;
 
-      expect(dependencia, relativo).not.toMatch(/from\s+['"]next\/link['"]/u);
-      expect(dependencia, relativo).not.toMatch(/^\s*['"]use client['"]/mu);
+      if (!vistos.has(actual)) {
+        vistos.add(actual);
+        pendientes.push(...importadosDe(actual));
+      }
+    }
+
+    const alcanzados = [...vistos];
+
+    // Meta-guardia de la resolución: con la lista vacía este test no mira nada, y con un recorrido
+    // de un solo nivel sólo llegaría a `app/mensajes.ts` y al tipo `Libro`. Los otros dos están a
+    // dos y a tres saltos (`mensajes → lib/db/errores → lib/dominio/parsear-precio`), así que
+    // exigirlos es lo que hace falsable que el recorrido sea transitivo de verdad.
+    expect(alcanzados).toContain(path.join('app', 'mensajes.ts'));
+    expect(alcanzados).toContain(path.join('lib', 'db', 'errores.ts'));
+    expect(alcanzados).toContain(path.join('lib', 'dominio', 'parsear-precio.ts'));
+
+    for (const alcanzado of alcanzados) {
+      const dependencia = fs.readFileSync(path.join(process.cwd(), alcanzado), 'utf8');
+
+      expect(dependencia, alcanzado).not.toMatch(/from\s+['"]next\/link['"]/u);
+      expect(dependencia, alcanzado).not.toMatch(/^\s*['"]use client['"]/mu);
     }
   });
 });
