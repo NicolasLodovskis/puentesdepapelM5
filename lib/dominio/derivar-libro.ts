@@ -19,11 +19,12 @@ export interface ColumnasDerivadas {
  * Deriva la identidad y el orden de un libro a partir de su título y su editorial.
  *
  * Es el **único** productor de `titulo_normalizado`, `titulo_orden` y `editorial_normalizada`
- * en todo el proyecto. Hoy su único consumidor es el alta (`lib/db/libros.ts`); los otros dos
- * llegan con los bloques siguientes de FEAT-001b y todavía no existen: el recálculo de identidad
- * de la migración (FR-11) y la edición de título y editorial (FR-06). La razón de que exista
- * este módulo antes que ellos, en vez de tres llamadas repetidas en cada camino de escritura, es
- * que las repeticiones se desincronizan: un camino que actualice `titulo` sin
+ * en todo el proyecto. Hoy lo consumen dos caminos de escritura: el alta (`lib/db/libros.ts`) y el
+ * recálculo de identidad de la migración de FR-11 (`lib/db/migraciones/003-identidad.ts`, desde el
+ * Block 2 de FEAT-001b). Falta el tercero, que llega con el Block 5: la edición de título y
+ * editorial (FR-06). La razón de que exista este módulo antes que ellos, en vez de tres llamadas
+ * repetidas en cada camino de escritura, es que las repeticiones se desincronizan: un camino que
+ * actualice `titulo` sin
  * recalcular `titulo_normalizado` rompe la unicidad del catálogo en silencio, y el `UNIQUE` no
  * lo detecta porque la fila que quedó vieja sigue siendo única.
  *

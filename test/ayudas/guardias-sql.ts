@@ -6,6 +6,7 @@ import {
   declaracionesSql,
   filtraPorClavePrimaria,
   fuenteDeModulo,
+  PREPARA_SIN_CONSTANTE,
   tocaLaTablaLibros,
 } from './convenciones-sql';
 
@@ -122,7 +123,7 @@ export function guardiaDeConvencionesDeSql({ relativo }: ModuloVigilado): void {
 
     it('sólo prepara sentencias declaradas como constante, nunca una armada al vuelo', () => {
       expect(fuente).toMatch(/db\.prepare\(/u);
-      expect(fuente).not.toMatch(/db\.prepare\(\s*(?!SQL_[A-Z0-9_]+\s*\))/u);
+      expect(fuente).not.toMatch(PREPARA_SIN_CONSTANTE);
 
       for (const { nombre, sentencia } of declaraciones) {
         expect(sentencia, `${relativo} → ${nombre}`).not.toMatch(/\$\{/u);
@@ -187,6 +188,19 @@ export interface ModuloDeOperacionSobreUnLibro extends ModuloVigilado {
  * acá no queda «cubierto contra la peor mutación», como afirmaba esta prosa. Lo que cierra el hueco
  * es que el registro sea **obligatorio**: el mismo archivo deriva qué módulos declaran SQL y se pone
  * rojo si alguno no está registrado en este registrador o en uno de sus hermanos.
+ *
+ * **Y por eso este registrador también aplica las cuatro reglas de M9.** Mientras no lo hacía, la
+ * obligación se satisfacía sin que M9 mirara nada: un `lib/db/ajuste.ts` con
+ * `const SQL_AJUSTAR = \`UPDATE libros SET ${'${COLUMNA}'} = ? WHERE id = ?\`` —interpolación pura,
+ * que es exactamente lo que M9 prohíbe— registrado sólo acá dejaba la suite entera en verde
+ * (medido: 321/321). El registro estaba, la obligación quedaba satisfecha, y las cuatro reglas no
+ * lo alcanzaban. La alternativa era que el registro obligatorio contara sólo a los registradores
+ * que llevan M9, y se descartó: eso deja que un módulo quede vigilado a medias con la suite en
+ * verde, mientras que aplicar M9 desde los dos registradores no deja ninguna combinación floja. El
+ * costo es que `lib/db/ventas.ts`, registrado con los dos, corre las cuatro reglas dos veces; la
+ * redundancia es barata y el hueco no lo era. Lo exige la guardia
+ * «cada registrador somete a su módulo a las cuatro reglas de M9» de
+ * `test/convenciones/sql.test.ts`, para que un registrador nuevo no pueda nacer sin ellas.
  */
 export function guardiaDeSentenciasSobreUnLibro({
   relativo,
@@ -194,6 +208,8 @@ export function guardiaDeSentenciasSobreUnLibro({
 }: ModuloDeOperacionSobreUnLibro): void {
   describe(`las sentencias de ${relativo} eligen la fila por su clave primaria (AC-02, M5)`, () => {
     const declaraciones = declaracionesSql(relativo);
+
+    guardiasDelSqlDeclarado(relativo);
     const sobreLibros = declaraciones.filter(({ sentencia }) => tocaLaTablaLibros(sentencia));
 
     it('reconoce las sentencias que operan sobre una fila de libros, y son más de una', () => {

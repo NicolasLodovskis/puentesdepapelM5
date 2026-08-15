@@ -9,8 +9,12 @@ import {
   declaracionesEsperadas,
   declaracionesSql,
   declaraSql,
+  declaraSqlEnFuente,
+  despejar,
   filtraPorClavePrimaria,
+  fuenteDeModulo,
   modulosDeDb,
+  PREPARA_SIN_CONSTANTE,
   sinComentarios,
   tocaLaTablaLibros,
 } from '@/test/ayudas/convenciones-sql';
@@ -277,12 +281,141 @@ describe('ninguna sentencia de lib/db elige un libro por rango (AC-02, M5)', () 
  * llamada a un registrador. Y los registradores tampoco se enumeran: salen de los exports de
  * `test/ayudas/guardias-sql.ts`, así que un registrador nuevo entra solo.
  */
-describe('todo módulo de lib/db que declara SQL tiene su guardia registrada (M9)', () => {
-  /** Los registradores de guardias, derivados de lo que exporta el módulo que los define. */
-  const REGISTRADORES = Object.entries(registradores)
-    .filter(([, valor]) => typeof valor === 'function')
-    .map(([nombre]) => nombre);
+describe('el reconocedor del prepare que no recibe una constante declarada (M9)', () => {
+  it('ve el nombre con dígitos, que es el que se le escapaba', () => {
+    // El patrón vivía escrito dos veces —en `test/ayudas/guardias-sql.ts` y en
+    // `test/db/consultas.test.ts`— y una de las dos copias se quedó en `SQL_[A-Z_]+`. Con el
+    // extractor de ese archivo ciego al mismo dígito, su meta-guardia comparaba `0 === 0` y no
+    // avisaba: `const SQL_2_ORDENAR = \`UPDATE libros SET estado = estado WHERE id = ?\`` —un
+    // `UPDATE` a `libros` desde el módulo de **lectura**, sin filtro de estado— dejaba la suite
+    // entera en verde (medido: 318/318), y la contraprueba con el mismo nombre sin dígito se ponía
+    // roja. Ahora el patrón es uno solo y lo comparten los dos.
+    expect('db.prepare(SQL_LIBRO_POR_ID)').not.toMatch(PREPARA_SIN_CONSTANTE);
+    expect('db.prepare(SQL_2_ORDENAR)').not.toMatch(PREPARA_SIN_CONSTANTE);
+    expect('db.prepare( SQL_001_INICIAL )').not.toMatch(PREPARA_SIN_CONSTANTE);
 
+    // Y lo que sí es armar SQL al vuelo, que es lo que la regla prohíbe.
+    expect('db.prepare(`SELECT ${columna} FROM libros`)').toMatch(PREPARA_SIN_CONSTANTE);
+    expect("db.prepare('SELECT 1')").toMatch(PREPARA_SIN_CONSTANTE);
+    expect('db.prepare(base + filtro)').toMatch(PREPARA_SIN_CONSTANTE);
+  });
+});
+
+/**
+ * El universo del registro obligatorio: qué es «un módulo que declara SQL».
+ *
+ * Es la pregunta de la que cuelga toda la exigencia de M9: un módulo que quede fuera de esta cuenta
+ * no necesita guardia, y por lo tanto ninguna regla lo mira. Las aserciones van contra **literales**
+ * y no contra el árbol, para que agregar o reescribir un módulo no mueva este test.
+ */
+describe('el reconocedor de los módulos que declaran SQL (M9)', () => {
+  it('ve el módulo que ejecuta DML con db.exec(), sin constante y sin prepare', () => {
+    // El hueco medido: un `lib/db/purga.ts` con `import 'server-only'` y
+    // `db.exec("UPDATE libros SET stock = 0 WHERE id >= 1")` dejaba la suite entera en verde
+    // (319/319). No lo alcanzaba el registro obligatorio —no entraba en este universo— ni el
+    // barrido universal, que sólo mira sentencias declaradas como constante. El docstring lo
+    // documentaba como la exclusión de `migrar.ts`, pero no es la exclusión de un archivo: es la de
+    // una **forma**, y cualquier módulo nuevo podía escribirla.
+    expect(declaraSqlEnFuente('db.exec("UPDATE libros SET stock = 0 WHERE id >= 1")')).toBe(true);
+    expect(declaraSqlEnFuente("db.exec('DELETE FROM ventas')")).toBe(true);
+    expect(declaraSqlEnFuente('db.exec(`INSERT INTO libros (titulo) VALUES (1)`)')).toBe(true);
+    // En minúscula es SQL igual de válido, y `obtenerDb().exec(` es la misma llamada escrita sin
+    // pasar por una variable.
+    expect(declaraSqlEnFuente("obtenerDb().exec('update libros set stock = 0')")).toBe(true);
+
+    // Las dos formas que ya estaban en el universo, para que el ensanchamiento no las tape.
+    expect(declaraSqlEnFuente('const SQL_LEER = `SELECT 1`;')).toBe(true);
+    expect(declaraSqlEnFuente('db.prepare(SQL_LEER)')).toBe(true);
+
+    // Y lo que **no** debe arrastrar, que es el desvío D04: el control de transacción y el `PRAGMA`
+    // del runner de migraciones, y el `db.exec()` cuyo argumento no es un literal —ahí el SQL lo
+    // declara la migración, que entra por su propia constante—.
+    expect(declaraSqlEnFuente("db.exec('BEGIN IMMEDIATE')")).toBe(false);
+    expect(declaraSqlEnFuente("db.exec('COMMIT')")).toBe(false);
+    expect(declaraSqlEnFuente('db.exec(`PRAGMA user_version = ${versionNueva}`)')).toBe(false);
+    expect(declaraSqlEnFuente('db.exec(migracion.sql)')).toBe(false);
+    expect(declaraSqlEnFuente('const texto = "acá no hay SQL";')).toBe(false);
+  });
+
+  it('deja al runner de migraciones fuera del universo, como declara el desvío D04', () => {
+    // La contraparte sobre el árbol: `lib/db/migrar.ts` ejecuta `PRAGMA` y el control de la
+    // transacción, no DML, así que sigue sin necesitar guardia de M9 —tiene las suyas en
+    // `test/db/migrar.test.ts`—. Si algún día ejecuta DML con `db.exec()`, entra al universo y el
+    // registro obligatorio lo reclama, que es exactamente lo que se quiere.
+    expect(declaraSql('lib/db/migrar.ts')).toBe(false);
+  });
+});
+
+/** Los registradores de guardias, derivados de lo que exporta el módulo que los define. */
+const REGISTRADORES = Object.entries(registradores)
+  .filter(([, valor]) => typeof valor === 'function')
+  .map(([nombre]) => nombre);
+
+/** El fuente del módulo que define los registradores, para mirar qué exige cada uno. */
+const MODULO_DE_LOS_REGISTRADORES = 'test/ayudas/guardias-sql.ts';
+
+/**
+ * Todo registrador de guardias somete a su módulo a **las cuatro reglas de M9**.
+ *
+ * Sin esto, el registro obligatorio se satisface con un registrador que no mira M9:
+ * `guardiaDeSentenciasSobreUnLibro()` exigía la clave primaria y nada más, así que un
+ * `lib/db/ajuste.ts` con `const SQL_AJUSTAR = \`UPDATE libros SET ${COLUMNA} = ? WHERE id = ?\``
+ * —interpolación pura, que es exactamente lo que M9 prohíbe— registrado sólo con ella dejaba la
+ * suite entera en verde (medido: 321/321). El registro estaba, la obligación quedaba satisfecha y
+ * las cuatro reglas no lo miraban.
+ *
+ * Se vigila **la definición del registrador** y no cada módulo registrado: es lo que hace que un
+ * registrador nuevo —el Block 5 estrena `lib/db/edicion.ts`— no pueda nacer sin M9.
+ */
+describe('los registradores de guardias de SQL (M9)', () => {
+  /** El texto de cada registrador exportado, despejado de comentarios y de cadenas. */
+  function cuerposDeLosRegistradores(): Map<string, string> {
+    const codigo = despejar(fuenteDeModulo(MODULO_DE_LOS_REGISTRADORES));
+    const cuerpos = new Map<string, string>();
+    const firma = /export function (\w+)/gu;
+    let encontrada = firma.exec(codigo);
+
+    while (encontrada !== null) {
+      const desde = encontrada.index;
+      const siguiente = /export function \w+/gu;
+      siguiente.lastIndex = desde + encontrada[0].length;
+      const hasta = siguiente.exec(codigo)?.index ?? codigo.length;
+
+      cuerpos.set(encontrada[1], codigo.slice(desde, hasta));
+      encontrada = firma.exec(codigo);
+    }
+
+    return cuerpos;
+  }
+
+  it('encuentra el cuerpo de cada registrador exportado', () => {
+    // Meta-guardia del extractor: con el mapa vacío —o incompleto— la exigencia de abajo pasaría
+    // sin haber mirado ningún registrador. Los registradores no se enumeran acá: salen de los
+    // exports del módulo, así que uno nuevo entra solo y tiene que aparecer en el mapa.
+    const cuerpos = cuerposDeLosRegistradores();
+
+    expect(REGISTRADORES.length).toBeGreaterThan(1);
+    expect([...cuerpos.keys()].filter((nombre) => !REGISTRADORES.includes(nombre))).toEqual([]);
+    for (const registrador of REGISTRADORES) {
+      expect(cuerpos.get(registrador), registrador).toBeDefined();
+    }
+  });
+
+  it('cada registrador somete a su módulo a las cuatro reglas de M9', () => {
+    // Sobre el fuente **despejado**: una llamada comentada no es una llamada, y con el fuente crudo
+    // alcanzaría con nombrar la función en la prosa del docstring para satisfacer esta exigencia.
+    const cuerpos = cuerposDeLosRegistradores();
+
+    for (const registrador of REGISTRADORES) {
+      expect(
+        cuerpos.get(registrador) ?? '',
+        `${registrador}: registra un módulo sin someterlo a guardiasDelSqlDeclarado() (M9)`,
+      ).toContain('guardiasDelSqlDeclarado(');
+    }
+  });
+});
+
+describe('todo módulo de lib/db que declara SQL tiene su guardia registrada (M9)', () => {
   /** Toda suite `.test.ts(x)` bajo `test/`, recursivo: ahí es donde se registran las guardias. */
   function suites(directorio = path.join(process.cwd(), 'test')): string[] {
     return fs.readdirSync(directorio, { withFileTypes: true }).flatMap((entrada) => {
@@ -338,20 +471,36 @@ describe('todo módulo de lib/db que declara SQL tiene su guardia registrada (M9
     modulo?: string;
   }
 
-  const REGISTROS: Registro[] = suites().flatMap((suite) => {
-    const fuente = fs.readFileSync(path.join(process.cwd(), suite), 'utf8');
+  /**
+   * Los registros escritos en el fuente de una suite, uno por llamada a un registrador.
+   *
+   * **Las llamadas se buscan sobre el fuente despejado y se leen sobre el crudo.** Sobre el crudo,
+   * un registro comentado contaba como registro y comentar la línea apagaba las cinco aserciones de
+   * un módulo sin un solo rojo; sobre el despejado, el contenido de las cadenas está en blanco y el
+   * `relativo:` no se podría resolver. `despejar()` conserva el largo carácter por carácter —para
+   * eso está escrito así—, de modo que los índices de la coincidencia valen igual sobre los dos y
+   * se puede usar cada uno para lo que sirve.
+   */
+  function registrosDe(suite: string, fuente: string): Registro[] {
+    const codigo = despejar(fuente);
 
     return REGISTRADORES.flatMap((registrador) =>
       Array.from(
-        fuente.matchAll(new RegExp(String.raw`\b${registrador}\s*\(\s*\{([^}]*)\}`, 'gu')),
+        codigo.matchAll(new RegExp(String.raw`\b${registrador}\s*\(\s*\{([^}]*)\}`, 'gu')),
         (encontrado) => {
-          const expresion = /\brelativo\s*:\s*([^,\n}]+)/u.exec(encontrado[1])?.[1].trim() ?? '';
+          const crudo = fuente.slice(encontrado.index, encontrado.index + encontrado[0].length);
+          const argumentos = /\{([\s\S]*)\}/u.exec(crudo)?.[1] ?? '';
+          const expresion = /\brelativo\s*:\s*([^,\n}]+)/u.exec(argumentos)?.[1].trim() ?? '';
 
           return { suite, registrador, expresion, modulo: rutaDelRegistro(expresion, fuente) };
         },
       ),
     );
-  });
+  }
+
+  const REGISTROS: Registro[] = suites().flatMap((suite) =>
+    registrosDe(suite, fs.readFileSync(path.join(process.cwd(), suite), 'utf8')),
+  );
 
   const CON_SQL = modulosDeDb().filter(declaraSql).map(conBarras);
 
@@ -370,6 +519,35 @@ describe('todo módulo de lib/db que declara SQL tiene su guardia registrada (M9
     expect(CON_SQL).toContain('lib/db/migraciones/001-inicial.ts');
     expect(CON_SQL).toContain('lib/db/migraciones/002-ventas.ts');
     expect(CON_SQL).toContain('lib/db/migraciones/003-identidad.ts');
+  });
+
+  it('no cuenta como registro una llamada comentada', () => {
+    // Meta-guardia de la derivación, contra literales y no contra el archivo. La lista de registros
+    // salía del fuente **crudo** de cada suite, así que **comentar la línea** satisfacía la
+    // obligación: comentar `guardiaDeConvencionesDeSql({ relativo: 'lib/db/libros.ts' });` dejaba la
+    // suite en verde con cinco aserciones menos (medido: 313/313, sin un solo rojo). Es el mismo
+    // agujero —y el mismo despeje— que las reglas de SQL ya habían cerrado para los comentarios de
+    // SQLite.
+    const registro = "guardiaDeConvencionesDeSql({ relativo: 'lib/db/libros.ts' });";
+
+    expect(registrosDe('suite.test.ts', registro).map(({ modulo }) => modulo)).toEqual([
+      'lib/db/libros.ts',
+    ]);
+    expect(registrosDe('suite.test.ts', `// ${registro}`)).toEqual([]);
+    // Y el despeje no se puede comer el archivo entero por culpa de una comilla dentro de una
+    // **expresión regular**, que es como se escriben la mitad de las guardias de este repositorio:
+    // sin reconocerla, `/'([^']*)'/gu` abría una cadena falsa, blanqueaba todo lo que seguía y los
+    // cinco registros del final de este mismo archivo desaparecían —la guardia se ponía roja contra
+    // un árbol correcto, que es el rojo que termina con la guardia borrada—.
+    expect(
+      registrosDe('suite.test.ts', `const LITERAL = /'([^']*)'/gu;\n${registro}`).map(
+        ({ modulo }) => modulo,
+      ),
+    ).toEqual(['lib/db/libros.ts']);
+    expect(registrosDe('suite.test.ts', `/*\n${registro}\n*/`)).toEqual([]);
+    // Y el registro nombrado dentro de una cadena —la prosa de un mensaje de error, por ejemplo—
+    // tampoco es una llamada.
+    expect(registrosDe('suite.test.ts', `const prosa = '${registro}';`)).toEqual([]);
   });
 
   it('resuelve cada registro al módulo que vigila, sin saltearse ninguno', () => {

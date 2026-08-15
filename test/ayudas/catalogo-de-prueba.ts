@@ -38,8 +38,14 @@ import type { Libro } from '@/lib/db/tipos';
  *
  * `AUTOINCREMENT` lo asigna a la primera fila de una base recién migrada, así que es el valor que un
  * `1` clavado en el código produce «por casualidad correcto».
+ *
+ * Se exporta porque `test/db/ventas.test.ts` tenía su propia copia con el mismo nombre y el mismo
+ * valor, y una constante escrita dos veces son dos valores que pueden separarse: comprobado,
+ * cambiarle el valor a la copia de esa suite deja los 329 tests en verde. Con una sola definición,
+ * el día que la siembra cambie de forma se mueven a la vez la aserción de la siembra y las de los
+ * tests que la usan.
  */
-const PRIMER_ID = 1;
+export const PRIMER_ID = 1;
 
 /**
  * El primer libro de la siembra. Los cuatro valores viajan como texto, igual que el formulario del
@@ -121,8 +127,17 @@ export function entradasDeStock(db: Database.Database): Array<Record<string, unk
   return db.prepare(SQL_HISTORIAL_STOCK).all() as Array<Record<string, unknown>>;
 }
 
-/** Siembra un libro por el camino real del alta. La entrada viaja como texto, igual que el form. */
-export function sembrarLibro(db: Database.Database, cambios: Partial<EntradaLibro> = {}): Libro {
+/**
+ * Siembra **un** libro por el camino real del alta. La entrada viaja como texto, igual que el form.
+ *
+ * **Interna a propósito.** Es el molde que produjo nueve puntos ciegos en cuatro rondas: con un solo
+ * libro en la base, `libro.id` vale 1 y toda afirmación de la forma «la operación toca el libro que
+ * le piden» es infalsificable, porque un `1` clavado en el código escribe y renderiza exactamente lo
+ * mismo. Exportada, era la puerta de vuelta a ese molde —hoy no la usa nadie de afuera, y el Block 5
+ * sería quien la estrenara—. Lo que sale de este archivo es `sembrarDosLibros()`, que lleva adentro
+ * las aserciones de identidad que hacen falsable lo que después se afirme.
+ */
+function sembrarLibro(db: Database.Database, cambios: Partial<EntradaLibro> = {}): Libro {
   const resultado = crearLibro({ ...PRIMER_LIBRO, ...cambios }, db);
 
   if (!resultado.ok) {

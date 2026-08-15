@@ -40,6 +40,131 @@ export function fuenteDeModulo(relativo: string): string {
   return leido;
 }
 
+/**
+ * El fuente con los comentarios y el **contenido** de las cadenas reemplazados por espacios.
+ *
+ * Conserva el largo carácter por carácter —espacio por espacio, salto de línea por salto de
+ * línea—, así que los índices siguen valiendo sobre el original y el emparejado de llaves y
+ * paréntesis que hace la guardia de M4 no se puede confundir con un `(` que viva dentro de una
+ * sentencia SQL o de un comentario. Sin esto, el `INSERT INTO ventas (libro_id, …)` de una
+ * constante desbalancearía el recorrido y la guardia mediría un cuerpo que no existe.
+ *
+ * **Por qué vive acá y no dentro del describe de M4 que lo estrenó.** Es el mismo despeje que
+ * necesita toda guardia que lea código en vez de SQL: la que deriva los registros obligatorios de
+ * `test/convenciones/sql.test.ts` contaba un `guardiaDeConvencionesDeSql({ … })` **comentado** como
+ * un registro válido, así que comentar una línea apagaba cinco aserciones sin un solo rojo (medido:
+ * 313/313 en verde). Dos copias del mismo despeje divergen, y la que quedara más laxa sería la que
+ * deja de ver.
+ *
+ * **La expresión regular es un delimitador más, y acá no es un lujo.** Este despeje se estrenó
+ * sobre módulos de `lib/db/`, donde no hay literales de expresión regular; en cuanto pasó a leer el
+ * fuente de una **suite**, `const LITERAL = /'([^']*)'/gu` abrió una cadena falsa con la comilla de
+ * adentro, blanqueó todo lo que seguía y los cinco registros escritos al final de
+ * `test/convenciones/sql.test.ts` desaparecieron. Eso es la guardia poniéndose roja contra un árbol
+ * correcto, que es el rojo que termina con la guardia borrada. Se distingue de una división por el
+ * carácter significativo anterior —tras un identificador, un número, un `)` o un `]` hay división;
+ * en cualquier otra posición, una expresión regular—, que es la regla que usa cualquier lexer de
+ * JavaScript.
+ *
+ * Límite conocido: `/*` se lee siempre como comentario de bloque, así que un literal de expresión
+ * regular escrito `/\*​/` no se reconoce. No existe hoy en el repositorio, y la dirección del error
+ * es la que se ve —el despeje se comería el resto del archivo y la guardia se pondría roja— y no la
+ * que calla.
+ */
+export function despejar(fuente: string): string {
+  let resultado = '';
+  let delimitador: string | null = null;
+  let indice = 0;
+  /** El último carácter significativo emitido: lo que distingue `/` de división de `/` de regex. */
+  let previo = '';
+  /** Dentro de una clase `[…]` de una expresión regular, donde el `/` no la cierra. */
+  let enClase = false;
+
+  const blanco = (caracter: string): string => (caracter === '\n' ? '\n' : ' ');
+  const divide = (caracter: string): boolean => /[\w$)\]]/u.test(caracter);
+
+  while (indice < fuente.length) {
+    const actual = fuente[indice];
+    const siguiente = fuente[indice + 1] ?? '';
+
+    if (delimitador === '/') {
+      if (actual === '\\') {
+        resultado += `${blanco(actual)}${blanco(siguiente)}`;
+        indice += 2;
+        continue;
+      }
+
+      if (actual === '[') {
+        enClase = true;
+      } else if (actual === ']') {
+        enClase = false;
+      } else if (actual === '/' && !enClase) {
+        delimitador = null;
+        previo = actual;
+        resultado += actual;
+        indice += 1;
+        continue;
+      }
+
+      resultado += blanco(actual);
+      indice += 1;
+      continue;
+    }
+
+    if (delimitador !== null) {
+      if (actual === '\\') {
+        resultado += `${blanco(actual)}${blanco(siguiente)}`;
+        indice += 2;
+        continue;
+      }
+
+      if (actual === delimitador) {
+        delimitador = null;
+        resultado += actual;
+      } else {
+        resultado += blanco(actual);
+      }
+
+      indice += 1;
+      continue;
+    }
+
+    if (actual === '/' && siguiente === '/') {
+      while (indice < fuente.length && fuente[indice] !== '\n') {
+        resultado += ' ';
+        indice += 1;
+      }
+      continue;
+    }
+
+    if (actual === '/' && siguiente === '*') {
+      while (indice < fuente.length && !(fuente[indice] === '*' && fuente[indice + 1] === '/')) {
+        resultado += blanco(fuente[indice]);
+        indice += 1;
+      }
+      resultado += '  '.slice(0, Math.min(2, fuente.length - indice));
+      indice += 2;
+      continue;
+    }
+
+    if (actual === "'" || actual === '"' || actual === '`') {
+      delimitador = actual;
+    } else if (actual === '/' && !divide(previo)) {
+      delimitador = '/';
+      enClase = false;
+    }
+
+    if (/\S/u.test(actual)) {
+      previo = actual;
+    }
+
+    resultado += actual;
+    indice += 1;
+  }
+
+  return resultado;
+}
+
 /** Una sentencia declarada como constante de módulo, **con su nombre**, para que el rojo diga cuál. */
 export interface DeclaracionSql {
   nombre: string;
@@ -57,6 +182,27 @@ export interface DeclaracionSql {
  * guardias no alcanzara nunca a las migraciones.
  */
 const NOMBRE_DE_SENTENCIA = String.raw`SQL_[A-Z0-9_]+`;
+
+/**
+ * Un `db.prepare(` que **no** recibe una constante de sentencia declarada.
+ *
+ * Vive acá, y no escrito en cada guardia, por el mismo motivo que el resto de este archivo: estaba
+ * copiado en `test/ayudas/guardias-sql.ts` y en `test/db/consultas.test.ts`, y una de las dos copias
+ * se quedó en `SQL_[A-Z_]+`. La copia ciega al dígito daba por «armada al vuelo» a
+ * `db.prepare(SQL_2_ORDENAR)` —o, según de qué lado se mire, dejaba pasar sin mirar a toda sentencia
+ * con un dígito en el nombre—, y como el extractor de ese mismo archivo era igual de ciego, su
+ * meta-guardia comparaba `0 === 0` y no avisaba de nada.
+ *
+ * El `\s*` va **dentro** del lookahead y no antes: afuera, el motor lo hace retroceder a cero
+ * caracteres y entonces la mirada cae sobre el espacio, que no empieza con `SQL_`, así que la
+ * negación se satisface y `db.prepare( SQL_LIBRO_POR_ID )` —escrito con espacios— se reportaba como
+ * SQL armado al vuelo. Esa dirección del error es la que se ve —pone roja una sentencia correcta— y
+ * no la que calla, pero el patrón dice lo que quiere decir sólo así.
+ */
+export const PREPARA_SIN_CONSTANTE = new RegExp(
+  String.raw`db\.prepare\((?!\s*${NOMBRE_DE_SENTENCIA}\s*\))`,
+  'u',
+);
 
 /**
  * Las sentencias que el módulo declara como constantes, con su nombre.
@@ -90,12 +236,40 @@ export function declaracionesEsperadas(relativo: string): number {
  * justamente la que hace que la exigencia de la constante, que vive dentro de
  * `guardiaDeConvencionesDeSql()`, alcance a un módulo que hoy no existe.
  *
- * **Lo que queda afuera, escrito para que nadie le suponga más:** un módulo que ejecute SQL sólo con
- * `db.exec()` y sin constante `SQL_…` —hoy `lib/db/migrar.ts`, que tiene sus propias guardias en
- * `test/db/migrar.test.ts`— no entra en esta cuenta.
+ * **Lo que queda afuera, escrito para que nadie le suponga más:** el control de transacción y el
+ * `PRAGMA` que `lib/db/migrar.ts` ejecuta con `db.exec()` —desvío D04, declarado en
+ * `test/convenciones/barrido-de-mutaciones.md` y documentado en el propio código—, y el `db.exec()`
+ * cuyo argumento no es un literal, como el `db.exec(migracion.sql)` del mismo runner: ahí el SQL lo
+ * declara la migración, que sí entra por su constante.
  */
 export function declaraSql(relativo: string): boolean {
-  return declaracionesEsperadas(relativo) > 0 || /\.prepare\(/u.test(fuenteDeModulo(relativo));
+  return declaraSqlEnFuente(fuenteDeModulo(relativo));
+}
+
+/**
+ * El SQL que **escribe filas** ejecutado directamente con `.exec()`, sin constante y sin `prepare`.
+ *
+ * Es la tercera forma de declarar SQL, y la que faltaba: un `lib/db/purga.ts` con
+ * `db.exec("UPDATE libros SET stock = 0 WHERE id >= 1")` quedaba fuera del universo del registro
+ * obligatorio y ninguna guardia de M9 lo alcanzaba, con la suite entera en verde (medido: 319/319).
+ * El docstring anterior lo daba por una exclusión de `lib/db/migrar.ts`, pero no es la exclusión de
+ * un archivo: es la de una **forma**, y cualquier módulo nuevo podía escribirla.
+ *
+ * Se pide la palabra clave de DML dentro de un literal para no arrastrar al runner de migraciones,
+ * cuyo `PRAGMA` y cuyo control de transacción son el desvío D04 —código de FEAT-001a, con sus
+ * propias guardias— y cuyo `db.exec(migracion.sql)` ejecuta SQL que la migración sí declara como
+ * constante. `CREATE`/`DROP` quedan afuera por lo mismo: el DDL del esquema vive en las migraciones,
+ * que entran por su constante.
+ */
+const EJECUTA_DML = /\.exec\(\s*[`'"][^`'"]*\b(?:UPDATE|INSERT|DELETE)\b/iu;
+
+/** La misma pregunta sobre un fuente, para poder fijar el reconocedor contra literales. */
+export function declaraSqlEnFuente(fuente: string): boolean {
+  return (
+    (fuente.match(new RegExp(String.raw`const ${NOMBRE_DE_SENTENCIA}`, 'gu')) ?? []).length > 0 ||
+    /\.prepare\(/u.test(fuente) ||
+    EJECUTA_DML.test(fuente)
+  );
 }
 
 /**

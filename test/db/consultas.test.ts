@@ -1,6 +1,3 @@
-import fs from 'node:fs';
-import path from 'node:path';
-
 import type Database from 'better-sqlite3';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
@@ -9,7 +6,14 @@ import type { EstadoLibro, Libro } from '@/lib/db/tipos';
 import { normalizarTitulo } from '@/lib/dominio/normalizar-titulo';
 import { plegarTexto } from '@/lib/dominio/plegar-texto';
 import { baseDePrueba } from '@/test/ayudas/base-de-prueba';
-import { filtraPorClavePrimaria, sinComentarios } from '@/test/ayudas/convenciones-sql';
+import {
+  declaracionesEsperadas,
+  declaracionesSql,
+  filtraPorClavePrimaria,
+  fuenteDeModulo,
+  PREPARA_SIN_CONSTANTE,
+  sinComentarios,
+} from '@/test/ayudas/convenciones-sql';
 
 /**
  * Fecha fija para todas las semillas: `creado_en` no participa de la búsqueda ni del orden,
@@ -421,10 +425,21 @@ describe('leerLibroPorId()', () => {
 });
 
 describe('convenciones de lib/db/consultas.ts', () => {
-  const fuente = fs.readFileSync(path.join(process.cwd(), 'lib/db/consultas.ts'), 'utf8');
+  const RELATIVO = 'lib/db/consultas.ts';
+  const fuente = fuenteDeModulo(RELATIVO);
 
-  /** Las sentencias declaradas como constantes de módulo, tal cual están en el archivo. */
-  const sentencias = Array.from(fuente.matchAll(/const SQL_[A-Z_]+ = `([\s\S]*?)`/gu), (m) => m[1]);
+  /*
+   * El extractor de sentencias y el reconocedor del `prepare` salen de
+   * `test/ayudas/convenciones-sql.ts`, que es de donde los toman las demás guardias del repositorio.
+   * Este archivo se había quedado con su propia copia, y las dos copias eran `SQL_[A-Z_]+`: ciegas
+   * al dígito del nombre. Como el extractor y su meta-guardia usaban el **mismo** patrón ciego, la
+   * meta-guardia comparaba `0 === 0` y no avisaba, y un `const SQL_2_ORDENAR = \`UPDATE libros SET
+   * estado = estado WHERE id = ?\`` —un `UPDATE` a `libros` desde el módulo de lectura, sin filtro de
+   * estado— dejaba la suite entera en verde (medido: 318/318; la contraprueba, el mismo nombre sin
+   * dígito, se ponía roja). Las reglas de abajo no cambiaron: cambió de dónde sale la lista que
+   * recorren.
+   */
+  const sentencias = declaracionesSql(RELATIVO).map(({ sentencia }) => sentencia);
 
   it('marca server-only antes que ningún otro import', () => {
     expect(fuente.match(/^import .*$/mu)?.[0]).toBe("import 'server-only';");
@@ -438,7 +453,7 @@ describe('convenciones de lib/db/consultas.ts', () => {
     // vive en una línea sin ninguna palabra clave SQL, que es donde el filtro por líneas de
     // abajo no ve nada.
     expect(fuente).toMatch(/db\.prepare\(/u);
-    expect(fuente).not.toMatch(/db\.prepare\(\s*(?!SQL_[A-Z_]+\s*\))/u);
+    expect(fuente).not.toMatch(PREPARA_SIN_CONSTANTE);
 
     // Y ninguna sentencia interpola en su propio cuerpo.
     for (const sentencia of sentencias) {
@@ -474,7 +489,7 @@ describe('convenciones de lib/db/consultas.ts', () => {
     // simples o con `String.raw` quedaría fuera del array y sus reglas —`estado = 'activo'`,
     // `ORDER BY titulo_orden`, `ESCAPE`— no se comprobarían **en silencio**, satisfechas por
     // las otras.
-    expect(sentencias).toHaveLength((fuente.match(/const SQL_[A-Z_]+/gu) ?? []).length);
+    expect(sentencias).toHaveLength(declaracionesEsperadas(RELATIVO));
     expect(sentencias.length).toBeGreaterThan(0);
   });
 

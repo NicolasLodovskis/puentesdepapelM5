@@ -10,7 +10,6 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { ventaDeLibro } from '@/app/acciones-libro';
 import PaginaDetalle from '@/app/libros/[id]/page';
-import * as mensajes from '@/app/mensajes';
 import {
   MENSAJE_ERROR_DE_VENTA,
   MENSAJE_VENTA_SIN_STOCK,
@@ -182,9 +181,30 @@ const ACCION_LIGADA_A_FUNCION = ((): string => {
   return encontrado[1];
 })();
 
-/** El formulario de la sección de venta del detalle, con su marcado adentro. */
+/**
+ * El formulario de la sección de venta del detalle, con su marcado adentro.
+ *
+ * Se elige por el marcador del control de confirmación —`data-venta="confirmar"`— y no por ser el
+ * primer `<form>` del HTML: el Block 5 mete un segundo formulario en la misma pantalla, y con el
+ * criterio posicional las ocho aserciones de la confirmación pasarían a medir el formulario de la
+ * edición y el rojo hablaría de la venta cuando el problema es el orden del marcado.
+ *
+ * Falla cerrado si no encuentra exactamente uno, igual que `filaConTitulo()`: con cero devolvía `''`
+ * y las aserciones que vinieran después medían otra cosa —o nada— sin ruido.
+ */
 function formularioDeVenta(html: string): string {
-  return /<form[\s\S]*?<\/form>/u.exec(html)?.[0] ?? '';
+  const encontrados = Array.from(
+    html.matchAll(/<form[\s\S]*?<\/form>/gu),
+    (coincidencia) => coincidencia[0],
+  ).filter((formulario) => formulario.includes('data-venta="confirmar"'));
+
+  if (encontrados.length !== 1) {
+    throw new Error(
+      `Se esperaba un solo formulario de venta en el detalle y se encontraron ${String(encontrados.length)}.`,
+    );
+  }
+
+  return encontrados[0];
 }
 
 /**
@@ -245,30 +265,53 @@ function entradasDeStock(): Array<Record<string, unknown>> {
 }
 
 /**
- * **Toda** constante de texto que exporta `app/mensajes.ts`, derivada y sin lista.
+ * **Toda** constante de texto que exporta un módulo de `app/`, derivada y sin lista.
  *
- * Tuvo dos formas antes de ésta, y las dos fallaban abierto. La primera era una lista escrita a
+ * Tuvo tres formas antes de ésta, y las tres fallaban abierto. La primera era una lista escrita a
  * mano: enumeraba cuatro textos y el módulo exportaba cinco, así que `TITULO_VENTA` quedó afuera y
  * ninguna de las cuatro reglas de M8 lo miraba. La segunda derivaba de los exports pero filtraba por
  * el **nombre** —la familia `VENTA`/`VENDER`—, y con eso un texto llamado `MENSAJE_STOCK_AGOTADO`
  * cuyo contenido fuera `'SQLITE_CONSTRAINT: fallo al escribir historial_stock en
- * /var/data/puentes.db'` pasaba la suite entera en verde. Medido: 289/289.
+ * /var/data/puentes.db'` pasaba la suite entera en verde (289/289). La tercera derivaba de **un
+ * módulo**: `import * as mensajes from '@/app/mensajes'`. El universo de M8 no es un archivo, es la
+ * interfaz, y con esa forma un `app/mensajes-edicion.ts` con ese mismo texto del motor renderizado
+ * en el detalle dejaba la suite entera en verde (medido: 318/318).
+ *
+ * **Por qué importa ahora y no cuando aparezca el segundo módulo.** `app/mensajes.ts` tiene 291
+ * líneas, veinte exports y cuatro responsabilidades declaradas en su propio encabezado, y partirlo
+ * está sobre la mesa. Si se parte antes que esto, media M8 se apaga sin un solo rojo. Con el
+ * universo derivado de los módulos, la partición pasa a ser segura y los textos de la edición del
+ * Block 5 **nacen cubiertos**.
  *
  * **Por qué sin lista y sin filtro.** Las cuatro reglas de M8 son prohibiciones genéricas —ni
  * prefijo del motor, ni `.db`, ni rutas, ni nombres de tabla— y ninguna de las cuatro depende de a
  * qué pantalla pertenece el texto. Un filtro por nombre no las hace más precisas: sólo decide a
- * cuáles no se aplican, y esa decisión la termina tomando quien elige el nombre del export. El
- * mismo argumento con el que la ronda anterior universalizó el barrido de `lib/db/`.
+ * cuáles no se aplican, y esa decisión la termina tomando quien elige el nombre del export.
  *
- * El beneficio que lo decide: los textos de la edición del Block 5 **nacen cubiertos**, en vez de
- * nacer con cero cobertura de M8 hasta que alguien se acuerde de agregarlos.
- *
- * Lo que evita que el universo se vacíe en silencio —un `typeof` mal escrito, un módulo que deja de
- * exportar— es la meta-guardia de abajo, que nombra los textos de hoy uno por uno.
+ * Se cargan los módulos de verdad —`import.meta.glob` con `eager`, que es el recorrido recursivo de
+ * `app/` que hace Vite— y no se leen sus fuentes: lo que la usuaria ve es el **valor** exportado, y
+ * un texto compuesto no se puede leer del fuente. Lo que evita que el universo se vacíe en silencio
+ * —un `typeof` mal escrito, un módulo que deja de exportar, un patrón angostado a un archivo— es la
+ * meta-guardia de abajo, que nombra los textos de hoy uno por uno y exige que los módulos
+ * recorridos sean varios.
  */
-const TEXTOS_DE_LA_INTERFAZ = Object.entries(mensajes)
-  .filter(([, valor]) => typeof valor === 'string')
-  .map(([nombre, valor]) => [nombre, valor as string] as const);
+const MODULOS_CARGADOS = import.meta.glob('../../app/**/*.{ts,tsx}', {
+  eager: true,
+}) as Record<string, Record<string, unknown>>;
+
+/** Las rutas recorridas, relativas a la raíz del repositorio, para que el rojo diga en cuál. */
+const MODULOS_DE_LA_INTERFAZ = Object.keys(MODULOS_CARGADOS)
+  .map((ruta) => ruta.replace(/^(?:\.\.\/)+/u, ''))
+  .sort();
+
+const TEXTOS_DE_LA_INTERFAZ = Object.entries(MODULOS_CARGADOS).flatMap(([ruta, modulo]) =>
+  Object.entries(modulo)
+    .filter(([, valor]) => typeof valor === 'string')
+    .map(
+      ([nombre, valor]) =>
+        [`${ruta.replace(/^(?:\.\.\/)+/u, '')} → ${nombre}`, valor as string, nombre] as const,
+    ),
+);
 
 function formulario(campos: Record<string, string>): FormData {
   const datos = new FormData();
@@ -559,6 +602,24 @@ describe('ventaDeLibro()', () => {
     expect(formularioDelOtro).not.toContain(`value="${String(libro.id)}"`);
   });
 
+  it('el extractor toma el formulario de la venta y falla cerrado, no el primero del marcado', () => {
+    // Meta-guardia del extractor, contra literales y no contra la pantalla. Tomaba el **primer**
+    // `<form>` del HTML, que hoy es el de la venta por el orden en que está escrito el detalle. El
+    // Block 5 mete un segundo formulario —el de edición— en la misma pantalla: con el extractor
+    // anterior, las ocho aserciones de la confirmación pasaban a medir el formulario que estuviera
+    // primero, y el rojo hubiera hablado de la venta cuando el problema era el orden del marcado.
+    //
+    // Falla cerrado con cero y con dos, igual que `filaConTitulo()`: una aserción que viniera
+    // después de un `''` mediría otra cosa —o nada— sin ruido.
+    const venta = '<form data-x="1"><button data-venta="confirmar">Confirmar</button></form>';
+    const edicion = '<form data-edicion="guardar"><button>Guardar</button></form>';
+
+    expect(formularioDeVenta(`${edicion}${venta}`)).toBe(venta);
+    expect(formularioDeVenta(`${venta}${edicion}`)).toBe(venta);
+    expect(() => formularioDeVenta(edicion)).toThrow(/formulario de venta/u);
+    expect(() => formularioDeVenta(`${venta}${venta}`)).toThrow(/formulario de venta/u);
+  });
+
   it('responde 404 sin llegar al repositorio ante un id que no es un entero positivo (M1, R1)', async () => {
     const { primero: otro, segundo: libro } = sembrarDos();
     const antes = contenido();
@@ -633,10 +694,23 @@ describe('ventaDeLibro()', () => {
     }
   });
 
-  it('encuentra todos los textos que exporta app/mensajes.ts, no sólo los de la venta', () => {
+  it('encuentra todos los textos de la interfaz, y no los de un solo módulo', () => {
     // Meta-guardia de la derivación: con la lista vacía —o corta— la guardia de abajo pasaría sin
     // haber mirado el texto que importa. Los cinco de la venta se nombran acá y sólo acá.
-    const nombres = TEXTOS_DE_LA_INTERFAZ.map(([nombre]) => nombre);
+    // El nombre pelado del export, que es lo que se nombra acá; en el resto de las aserciones el
+    // nombre viaja calificado por su módulo, para que el rojo diga en cuál de ellos está el texto.
+    const nombres = TEXTOS_DE_LA_INTERFAZ.map(([, , nombre]) => nombre);
+
+    // El universo son **los módulos de `app/`**, no uno. Con el universo derivado de
+    // `app/mensajes.ts` y nada más, un `app/mensajes-edicion.ts` con
+    // `'SQLITE_CONSTRAINT: fallo al escribir historial_stock en /var/data/puentes.db'` renderizado
+    // en el detalle dejaba la suite entera en verde (medido: 318/318). Importa ahora y no después:
+    // `app/mensajes.ts` tiene cuatro responsabilidades declaradas en su propio encabezado y
+    // partirlo está sobre la mesa —si se parte antes que esto, media M8 se apaga sin un solo rojo—.
+    expect(MODULOS_DE_LA_INTERFAZ).toContain('app/mensajes.ts');
+    expect(MODULOS_DE_LA_INTERFAZ).toContain('app/componentes/listado-libros.tsx');
+    expect(MODULOS_DE_LA_INTERFAZ).toContain('app/libros/[id]/page.tsx');
+    expect(MODULOS_DE_LA_INTERFAZ.length).toBeGreaterThan(5);
 
     expect(nombres).toContain('TEXTO_VENDER');
     expect(nombres).toContain('TITULO_VENTA');

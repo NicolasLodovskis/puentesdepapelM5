@@ -10,10 +10,11 @@ import {
   contenido,
   entradasDeStock,
   filaDelLibro,
+  PRIMER_ID,
   sembrarDosLibros,
   ventas,
 } from '@/test/ayudas/catalogo-de-prueba';
-import { modulosDeDb } from '@/test/ayudas/convenciones-sql';
+import { despejar, modulosDeDb } from '@/test/ayudas/convenciones-sql';
 import {
   guardiaDeConvencionesDeSql,
   guardiaDeSentenciasSobreUnLibro,
@@ -38,9 +39,6 @@ import {
 
 /** ISO-8601 en UTC al milisegundo, la misma forma que escribe el alta. */
 const FECHA_ISO = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/u;
-
-/** El id que hace infalsificable a una siembra de un solo libro. Ver el fixture compartido. */
-const PRIMER_ID = 1;
 
 /** Un ejemplar por venta, para escribir la resta esperada sin repetir el número. */
 const UN_EJEMPLAR = 1;
@@ -307,77 +305,19 @@ describe('forma de las transacciones de lib/db (M4, R5)', () => {
     return fs.readFileSync(path.join(process.cwd(), relativo), 'utf8');
   }
 
-  /**
-   * El fuente con los comentarios y el **contenido** de las cadenas reemplazados por espacios.
+  /*
+   * El despeje —`despejar()`— vive en `test/ayudas/convenciones-sql.ts`. Lo necesita también la
+   * guardia del registro obligatorio de `test/convenciones/sql.test.ts`, que derivaba sus registros
+   * del fuente **crudo** y contaba como registro válido una llamada comentada. Dos copias del mismo
+   * despeje divergen, y la que quedara más laxa sería la que deja de ver.
    *
-   * Conserva el largo carácter por carácter —espacio por espacio, salto de línea por salto de
-   * línea—, así que los índices siguen valiendo sobre el original y el emparejado de llaves y
-   * paréntesis de abajo no se puede confundir con un `(` que viva dentro de una sentencia SQL o de
-   * un comentario. Sin esto, el `INSERT INTO ventas (libro_id, …)` de una constante desbalancearía
-   * el recorrido y la guardia mediría un cuerpo que no existe.
-   *
-   * Límite conocido: no distingue una expresión regular de una división ni de un comentario, igual
-   * que `sinComentarios()` de `test/convenciones/red.test.ts`. Ningún módulo de `lib/db/` escribe
-   * hoy un literal de expresión regular que empiece con `/` seguido de `/` o de `*`, que es el único
-   * caso en que eso cambiaría la lectura.
+   * Llegó con **un** cambio, y no toca lo que este describe le pide: aprendió a reconocer los
+   * literales de expresión regular. Sobre módulos de `lib/db/` no hay ninguno —el límite estaba
+   * declarado en este mismo docstring—, pero sobre el fuente de una suite, `/'([^']*)'/gu` abría una
+   * cadena falsa con la comilla de adentro y blanqueaba el resto del archivo. Su meta-guardia sigue
+   * en este archivo, más abajo, sin una aserción cambiada; la del caso nuevo está en
+   * `test/convenciones/sql.test.ts`, que es donde vive el consumidor que lo necesitó.
    */
-  function despejar(fuente: string): string {
-    let resultado = '';
-    let delimitador: string | null = null;
-    let indice = 0;
-
-    const blanco = (caracter: string): string => (caracter === '\n' ? '\n' : ' ');
-
-    while (indice < fuente.length) {
-      const actual = fuente[indice];
-      const siguiente = fuente[indice + 1] ?? '';
-
-      if (delimitador !== null) {
-        if (actual === '\\') {
-          resultado += `${blanco(actual)}${blanco(siguiente)}`;
-          indice += 2;
-          continue;
-        }
-
-        if (actual === delimitador) {
-          delimitador = null;
-          resultado += actual;
-        } else {
-          resultado += blanco(actual);
-        }
-
-        indice += 1;
-        continue;
-      }
-
-      if (actual === '/' && siguiente === '/') {
-        while (indice < fuente.length && fuente[indice] !== '\n') {
-          resultado += ' ';
-          indice += 1;
-        }
-        continue;
-      }
-
-      if (actual === '/' && siguiente === '*') {
-        while (indice < fuente.length && !(fuente[indice] === '*' && fuente[indice + 1] === '/')) {
-          resultado += blanco(fuente[indice]);
-          indice += 1;
-        }
-        resultado += '  '.slice(0, Math.min(2, fuente.length - indice));
-        indice += 2;
-        continue;
-      }
-
-      if (actual === "'" || actual === '"' || actual === '`') {
-        delimitador = actual;
-      }
-
-      resultado += actual;
-      indice += 1;
-    }
-
-    return resultado;
-  }
 
   /** El índice del cierre que corresponde a la apertura en `desde`, o `-1`. */
   function cierreDe(codigo: string, desde: number, apertura: string, cierre: string): number {
