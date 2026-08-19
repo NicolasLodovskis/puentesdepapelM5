@@ -8,13 +8,15 @@ import { createElement } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-import { ventaDeLibro } from '@/app/acciones-libro';
+import { edicionDeLibro, ventaDeLibro } from '@/app/acciones-libro';
 import PaginaDetalle from '@/app/libros/[id]/page';
 import {
+  MENSAJE_ERROR_DE_EDICION,
   MENSAJE_ERROR_DE_VENTA,
   MENSAJE_VENTA_SIN_STOCK,
   rutaDelDetalle,
   TEXTO_CONFIRMAR_VENTA,
+  TEXTO_GUARDAR_EDICION,
   TEXTO_VENDER,
 } from '@/app/mensajes';
 import Pagina from '@/app/page';
@@ -31,9 +33,10 @@ import {
 } from '@/test/ayudas/catalogo-de-prueba';
 
 /**
- * Tests del Server Action de venta (FEAT-001b Block 4: AC-02, AC-03, AC-11, AC-17, M1, M2, M3, M8).
+ * Tests de los Server Actions de un libro: la venta (FEAT-001b Block 4: AC-02, AC-03, AC-11,
+ * AC-17, M1, M2, M3, M8) y la edición (Block 5: AC-04 a AC-11, AC-14, M1, M3, M8).
  *
- * No hay entorno DOM ni runner e2e: el Server Action se ejercita como una función async y las
+ * No hay entorno DOM ni runner e2e: los Server Actions se ejercitan como funciones async y las
  * pantallas se renderizan a texto, igual que en `test/app/acciones.test.ts` y en
  * `test/app/detalle.test.ts`.
  */
@@ -99,6 +102,24 @@ vi.mock('@/lib/db/ventas', async (importarOriginal) => {
   };
 
   return { ...original, venderEjemplar };
+});
+
+/**
+ * Los argumentos con los que el Server Action de edición llamó al repositorio, en orden y
+ * completos. Mismo motivo que `argumentosDeVenta`: es la frontera entre `app/` y `lib/db/`.
+ */
+const argumentosDeEdicion = vi.hoisted(() => [] as unknown[][]);
+
+vi.mock('@/lib/db/edicion', async (importarOriginal) => {
+  const original = await importarOriginal<typeof import('@/lib/db/edicion')>();
+
+  const editarLibro: typeof original.editarLibro = (...argumentos) => {
+    argumentosDeEdicion.push(argumentos);
+
+    return original.editarLibro(...argumentos);
+  };
+
+  return { ...original, editarLibro };
 });
 
 /**
@@ -208,13 +229,34 @@ function formularioDeVenta(html: string): string {
 }
 
 /**
+ * El formulario de edición del detalle, elegido por el marcador de su botón —
+ * `data-edicion="guardar"`— y no por su posición: la misma razón que `formularioDeVenta()`, que es
+ * su hermano y el que ya prueba el criterio de selección contra los dos formularios juntos (el
+ * test "el extractor toma el formulario de la venta y falla cerrado").
+ */
+function formularioDeEdicion(html: string): string {
+  const encontrados = Array.from(
+    html.matchAll(/<form[\s\S]*?<\/form>/gu),
+    (coincidencia) => coincidencia[0],
+  ).filter((formulario) => formulario.includes('data-edicion="guardar"'));
+
+  if (encontrados.length !== 1) {
+    throw new Error(
+      `Se esperaba un solo formulario de edición en el detalle y se encontraron ${String(encontrados.length)}.`,
+    );
+  }
+
+  return encontrados[0];
+}
+
+/**
  * Ejecuta la acción y devuelve la señal que lanzó.
  *
  * La venta **siempre** termina en una señal de navegación (M3: POST-Redirect-GET, o 404): una
  * acción que devolviera normalmente sería un `POST` reenviable, así que "no lanzó" es un fallo del
  * test y no un caso a tolerar.
  */
-async function senalDe(accion: () => Promise<void>): Promise<unknown> {
+async function senalDe(accion: () => Promise<unknown>): Promise<unknown> {
   try {
     await accion();
   } catch (senal) {
@@ -736,6 +778,154 @@ describe('ventaDeLibro()', () => {
       expect(texto, nombre).not.toMatch(/\.db\b/u);
       expect(texto, nombre).not.toMatch(/historial_stock|titulo_normalizado|\bventas\b/u);
     }
+  });
+});
+
+describe('edicionDeLibro()', () => {
+  beforeEach(() => {
+    db = baseDePrueba();
+    conexionRota = false;
+    revalidar.mockClear();
+    argumentosDeEdicion.length = 0;
+  });
+
+  afterEach(() => {
+    db?.close();
+    db = undefined;
+    vi.restoreAllMocks();
+  });
+
+  /** El `FormData` con los cuatro campos del formulario de edición, más el id oculto. */
+  function formularioDeCampos(libro: {
+    id: number;
+    titulo: string;
+    editorial: string;
+    stock: number;
+    precio: number;
+  }): FormData {
+    return formulario({
+      id: String(libro.id),
+      titulo: libro.titulo,
+      editorial: libro.editorial,
+      stock: String(libro.stock),
+      precio: String(libro.precio),
+    });
+  }
+
+  it('guarda el cambio y redirige al detalle revalidando las dos rutas, no una sola (M3)', async () => {
+    const { primero: otro, segundo: libro } = sembrarDos();
+    const precioNuevo = libro.precio + 1000;
+
+    const senal = await senalDe(() =>
+      edicionDeLibro(null, formularioDeCampos({ ...libro, precio: precioNuevo })),
+    );
+
+    expect(digestDe(senal)).toBe(digestDeRedireccion(rutaDelDetalle(libro.id)));
+    expect(digestDe(senal)).not.toBe(digestDeRedireccion(rutaDelDetalle(otro.id)));
+    expect(revalidar.mock.calls).toEqual([['/'], [rutaDelDetalle(libro.id)]]);
+    expect(revalidar.mock.calls).not.toContainEqual([rutaDelDetalle(otro.id)]);
+  });
+
+  it('ante un campo inválido no redirige: devuelve el mensaje al lado de ese campo (AC-05, AC-08)', async () => {
+    const { segundo: libro } = sembrarDos();
+
+    const resultado = await edicionDeLibro(null, formularioDeCampos({ ...libro, titulo: '   ' }));
+
+    expect(resultado.ok).toBe(false);
+    expect(resultado.mensajes.titulo).toMatch(/\S/u);
+    expect(resultado.general).toBeUndefined();
+    // No hubo redirección: el stock del libro sigue igual y nadie más se tocó.
+    expect(stockDe(libro.id)).toBe(libro.stock);
+    expect(revalidar).not.toHaveBeenCalled();
+  });
+
+  it('ante un título duplicado devuelve el conflicto nombrado en el campo título (AC-09, AC-14)', async () => {
+    const { primero, segundo: libro } = sembrarDos();
+
+    const resultado = await edicionDeLibro(
+      null,
+      formularioDeCampos({ ...libro, titulo: primero.titulo }),
+    );
+
+    expect(resultado.ok).toBe(false);
+    expect(resultado.mensajes.titulo).toContain(primero.titulo);
+    expect(resultado.mensajes.titulo).toContain(primero.editorial);
+    expect(revalidar).not.toHaveBeenCalled();
+  });
+
+  it('responde 404 sin llegar al repositorio ante un id que no es un entero positivo (M1)', async () => {
+    const { segundo: libro } = sembrarDos();
+    const invalidos = ['abc', '-1', '0', '9e99', ''];
+
+    for (const invalido of invalidos) {
+      const datos = formularioDeCampos(libro);
+      datos.set('id', invalido);
+
+      const senal = await senalDe(() => edicionDeLibro(null, datos));
+
+      expect((senal as Error).message, invalido).toBe(RESPUESTA_404);
+    }
+
+    expect(argumentosDeEdicion).toEqual([]);
+  });
+
+  it('responde 404 ante un libro inexistente, sin escribir nada', async () => {
+    const { segundo: libro } = sembrarDos();
+
+    const senal = await senalDe(() =>
+      edicionDeLibro(null, formularioDeCampos({ ...libro, id: libro.id + 1000 })),
+    );
+
+    expect((senal as Error).message).toBe(RESPUESTA_404);
+    expect(argumentosDeEdicion).toEqual([[libro.id + 1000, expect.any(Object)]]);
+  });
+
+  it('ante un fallo de infraestructura no expone el motor y registra sin el formulario (M8)', async () => {
+    const registro = vi.spyOn(console, 'error').mockImplementation(() => {});
+    conexionRota = true;
+
+    const resultado = await edicionDeLibro(
+      null,
+      formulario({
+        id: '7',
+        titulo: 'Cualquiera',
+        editorial: 'Cualquiera',
+        stock: '1',
+        precio: '1000',
+      }),
+    );
+
+    expect(resultado.ok).toBe(false);
+    expect(resultado.general).toBe(MENSAJE_ERROR_DE_EDICION);
+    expect(resultado.general).not.toContain('SQLITE_');
+
+    expect(registro).toHaveBeenCalled();
+    const argumentos = registro.mock.calls.flat();
+    const registrado = argumentos.map((argumento) => inspect(argumento)).join(' ');
+    expect(registrado).not.toContain('Cualquiera');
+
+    for (const argumento of argumentos) {
+      expect(argumento).not.toBeInstanceOf(FormData);
+    }
+  });
+
+  it('el formulario de edición del detalle marca su botón de guardar y lleva el id de ese libro', async () => {
+    const { primero: otro, segundo: libro } = sembrarDos();
+
+    const formularioHtml = formularioDeEdicion(await renderizarDetalle(String(libro.id)));
+
+    expect(formularioHtml).toContain('data-edicion="guardar"');
+    expect(formularioHtml).toContain(TEXTO_GUARDAR_EDICION);
+    // Ligado a una función —el Server Action— y no a una URL.
+    expect(formularioHtml).toContain(`action="${ACCION_LIGADA_A_FUNCION}"`);
+
+    expect(formularioHtml).toContain('type="hidden"');
+    expect(formularioHtml).toContain('name="id"');
+    expect(formularioHtml).toContain(`value="${String(libro.id)}"`);
+    expect(formularioHtml).not.toContain(`value="${String(otro.id)}"`);
+
+    const formularioDelOtro = formularioDeEdicion(await renderizarDetalle(String(otro.id)));
+    expect(formularioDelOtro).toContain(`value="${String(otro.id)}"`);
   });
 });
 

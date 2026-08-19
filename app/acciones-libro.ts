@@ -3,13 +3,23 @@
 import { revalidatePath } from 'next/cache';
 import { notFound, redirect } from 'next/navigation';
 
-import type { ResultadoVender } from '@/lib/db/errores';
+import { editarLibro } from '@/lib/db/edicion';
+import type { ResultadoEditar, ResultadoVender } from '@/lib/db/errores';
 import { venderEjemplar } from '@/lib/db/ventas';
 
-import { identificadorDeLibro, MENSAJE_ERROR_DE_VENTA, rutaDelDetalle } from './mensajes';
+import {
+  identificadorDeLibro,
+  MENSAJE_ERROR_DE_EDICION,
+  MENSAJE_ERROR_DE_VENTA,
+  type MensajesPorCampo,
+  mensajeDeCampo,
+  mensajeDeConflicto,
+  type ResultadoEdicion,
+  rutaDelDetalle,
+} from './mensajes';
 
 /**
- * Server Actions de un libro: la venta (FR-02) y, con el bloque siguiente, la edición.
+ * Server Actions de un libro: la venta (FR-02) y la edición (FR-03 a FR-06).
  *
  * **Este módulo exporta únicamente funciones async.** Un archivo `'use server'` no puede exportar
  * constantes: si lo hace, la aplicación falla al invocar el formulario desde el click del botón
@@ -95,6 +105,77 @@ export async function ventaDeLibro(datos: FormData): Promise<void> {
 
   // Sin esto, la venta se registra y las dos pantallas siguen mostrando el stock anterior. Van las
   // **dos** rutas: el alta ya dejó la cicatriz de revalidar una sola.
+  revalidatePath('/');
+  revalidatePath(rutaDelDetalle(id));
+
+  redirect(rutaDelDetalle(id));
+}
+
+/**
+ * Edita título, editorial, stock y precio de un libro (FR-03 a FR-06, FR-09).
+ *
+ * Firma de `useActionState` —`(estadoPrevio, datos) => ResultadoEdicion`—, igual que
+ * `altaDeLibro()`: el formulario de edición necesita mostrar el motivo exacto por campo sin perder
+ * lo que la usuaria escribió, y eso exige el hook. `estadoPrevio` no se lee, por la misma razón que
+ * en el alta: el resultado de una edición no depende de la anterior.
+ *
+ * **Tras el éxito, la acción redirige (M3), igual que la venta**, y no vuelve un `ResultadoEdicion`
+ * de éxito: `redirect()` interrumpe la ejecución antes de que hubiera algo que devolver, así que el
+ * reenvío del navegador no puede repetir la edición.
+ *
+ * El identificador viaja en un campo oculto del formulario y se valida con la misma función que la
+ * venta y la ruta del detalle (M1). Los otros cuatro campos los valida `editarLibro()`, que es quien
+ * conoce las reglas: acá sólo se traduce su rechazo estructurado a un mensaje para la usuaria.
+ */
+export async function edicionDeLibro(
+  estadoPrevio: ResultadoEdicion | null,
+  datos: FormData,
+): Promise<ResultadoEdicion> {
+  const id = identificadorDeLibro(datos.get('id'));
+
+  if (id === undefined) {
+    notFound();
+  }
+
+  let resultado: ResultadoEditar;
+
+  try {
+    resultado = editarLibro(id, {
+      titulo: datos.get('titulo'),
+      editorial: datos.get('editorial'),
+      stock: datos.get('stock'),
+      precio: datos.get('precio'),
+    });
+  } catch (error) {
+    // Fallo de infraestructura, no una condición de negocio. Se registra —sin el contenido del
+    // formulario, mismo criterio que la venta (M8)— y se devuelve el mensaje genérico: acá no se
+    // redirige, porque el formulario sigue en pantalla y es donde tiene que verse el aviso.
+    console.error('Falló una edición por un problema de infraestructura.', error);
+
+    return { ok: false, mensajes: {}, general: MENSAJE_ERROR_DE_EDICION };
+  }
+
+  if (!resultado.ok) {
+    if (resultado.motivo === 'libro_inexistente') {
+      notFound();
+    }
+
+    if (resultado.motivo === 'titulo_duplicado') {
+      // El conflicto es de identidad del título, así que el mensaje va al lado de ese campo
+      // (AC-09, AC-14), igual que en el alta.
+      return { ok: false, mensajes: { titulo: mensajeDeConflicto(resultado.conflicto) } };
+    }
+
+    const mensajes: MensajesPorCampo = {};
+
+    for (const error of resultado.errores) {
+      mensajes[error.campo] = mensajeDeCampo(error);
+    }
+
+    return { ok: false, mensajes };
+  }
+
+  // Sin esto, la edición se guarda y las dos pantallas siguen mostrando los datos anteriores.
   revalidatePath('/');
   revalidatePath(rutaDelDetalle(id));
 

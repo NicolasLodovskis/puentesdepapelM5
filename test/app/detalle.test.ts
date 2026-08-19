@@ -269,7 +269,7 @@ describe('app/libros/[id]/page.tsx', () => {
     expect(dato(html, 'precio')).toEqual(['$ 9.500']);
   });
 
-  it('ofrece desde la vista las operaciones de FR-03 a FR-06 (AC-01)', async () => {
+  it('ofrece desde la vista las operaciones de FR-03 a FR-06, con controles reales (AC-01)', async () => {
     const id = sembrar(baseAbierta(), {
       titulo: 'Rayuela',
       identidad: 'rayuela',
@@ -281,6 +281,18 @@ describe('app/libros/[id]/page.tsx', () => {
     // Los cuatro campos que FR-03 (precio), FR-04 (stock) y FR-05 (título y editorial) permiten
     // corregir desde acá; FR-06 es la regla que gobierna el cambio de título.
     expect(operaciones(html).sort()).toEqual(['editorial', 'precio', 'stock', 'titulo']);
+
+    // Y no es una lista estática de texto (el `<li>` que este bloque reemplaza): cada marca
+    // envuelve un campo editable de verdad, con su valor vigente precargado y un control que
+    // guarda los cambios. Sin esto, "ofrece las operaciones" quedaba satisfecho por cuatro
+    // `<li>` sin ningún `<input>` detrás, que es exactamente lo que había hasta el Block 4.
+    expect(html).toContain('name="titulo"');
+    expect(html).toContain('name="editorial"');
+    expect(html).toContain('name="stock"');
+    expect(html).toContain('name="precio"');
+    expect(html).toContain('value="Rayuela"');
+    expect(html).toContain('value="Sudamericana"');
+    expect(html).toContain('data-edicion="guardar"');
   });
 
   it('responde 404 sin consultar la base ante un id que no es un entero positivo (M1, R1)', async () => {

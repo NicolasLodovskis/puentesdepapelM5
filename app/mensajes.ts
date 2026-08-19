@@ -125,6 +125,34 @@ export const MENSAJE_ERROR_DE_VENTA =
   'Volvé a intentar; si sigue fallando, hay que revisar la instalación.';
 
 /**
+ * Resultado de una edición, tal como lo devuelve el Server Action (FEAT-001b Block 5).
+ *
+ * **Una sola variante, y no dos como `ResultadoAlta`.** Tras el éxito la acción **redirige** (M3,
+ * igual que la venta): el `ok: true` de `lib/db/edicion.ts` nunca llega a convertirse en este
+ * estado porque `redirect()` interrumpe la ejecución antes del `return`. Lo único que
+ * `useActionState` puede recibir de vuelta es un rechazo —campo inválido o título duplicado—, así
+ * que agregar una variante `ok: true` sería modelar un caso que ningún camino produce, la misma
+ * razón por la que `ResultadoAlta` no lleva "todavía no se envió nada" como variante propia.
+ */
+export type ResultadoEdicion = { ok: false; mensajes: MensajesPorCampo; general?: string };
+
+/** Encabezado de la sección de edición de la vista de detalle (FR-03 a FR-06). */
+export const TITULO_EDICION = 'Editar los datos del libro';
+
+/** Texto del control que guarda los cambios del formulario de edición. */
+export const TEXTO_GUARDAR_EDICION = 'Guardar los cambios';
+
+/**
+ * El texto con el que la edición **falla**, cuando falla por infraestructura.
+ *
+ * Mismo criterio que `MENSAJE_ERROR_DE_VENTA`: no es el error del motor, y su público real es el
+ * log del servidor y el digest del límite de error, no la usuaria (M8, riesgo R7).
+ */
+export const MENSAJE_ERROR_DE_EDICION =
+  'No se pudo guardar la edición por un problema del sistema. No se modificó nada. ' +
+  'Volvé a intentar; si sigue fallando, hay que revisar la instalación.';
+
+/**
  * La ruta de la vista de detalle de un libro.
  *
  * Vive acá, junto a los textos de la interfaz, y no repetida en cada pantalla: la escriben el

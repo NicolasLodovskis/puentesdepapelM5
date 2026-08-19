@@ -77,6 +77,23 @@ const SQL_BUSCAR_CONFLICTO = `
    WHERE titulo_normalizado = ?
 `;
 
+/**
+ * La misma búsqueda, **excluyendo el propio libro** (FEAT-001b Block 5, AC-09, AC-14).
+ *
+ * La edición reusa `buscarConflicto()` para el mismo propósito que el alta —nombrar el libro que
+ * ya ocupa la identidad—, pero editar un libro sin cambiar su título lo compara contra sí mismo:
+ * sin excluir su propio id, todo libro "colisionaría" con su propia fila. Se escribe
+ * `NOT (id = ?)` y no `id != ?` ni `id <> ?` a propósito: la guardia de `test/convenciones/sql.test.ts`
+ * prohíbe elegir una fila de `libros` por un comparador de rango, y esos dos operadores están en su
+ * lista; `NOT (id = ?)` es la misma exclusión escrita como la negación de una igualdad exacta.
+ */
+const SQL_BUSCAR_CONFLICTO_EXCLUYENDO = `
+  SELECT id, titulo, editorial
+    FROM libros
+   WHERE titulo_normalizado = ?
+     AND NOT (id = ?)
+`;
+
 const SQL_INSERTAR_LIBRO = `
   INSERT INTO libros
     (titulo, titulo_normalizado, titulo_orden, editorial, editorial_normalizada,
@@ -146,7 +163,7 @@ type CampoValidado<T> = { ok: true; valor: T } | { ok: false; error: ErrorCampo 
  * se reporta como `vacio`, que es el único motivo que la spec admite para estos campos.
  * No se lo convierte con `String()`: eso sería inventar el dato que falta (Principio II).
  */
-function validarTexto(valor: unknown, campo: CampoLibro): CampoValidado<string> {
+export function validarTexto(valor: unknown, campo: CampoLibro): CampoValidado<string> {
   const recortado = typeof valor === 'string' ? valor.trim() : '';
 
   if (recortado === '') {
@@ -181,7 +198,7 @@ function interpretarEntero(valor: unknown): number | undefined {
  * la spec ofrece para ese caso, y es literalmente cierto: ni `""` ni `null` son enteros.
  * Un negativo, en cambio, **sí** es entero y sale como `fuera_de_rango`.
  */
-function validarStock(valor: unknown): CampoValidado<number> {
+export function validarStock(valor: unknown): CampoValidado<number> {
   const entero = interpretarEntero(valor);
 
   if (entero === undefined) {
@@ -226,12 +243,23 @@ function recolectarErrores(...campos: Array<CampoValidado<unknown>>): ErrorCampo
  * Busca el libro que ya ocupa una identidad. Devuelve `titulo` y `editorial` tal como
  * están almacenados, porque AC-03 exige **nombrar** el libro en conflicto y un
  * `SQLITE_CONSTRAINT_UNIQUE` sólo da el nombre del índice.
+ *
+ * `excluirId` es para la edición (FEAT-001b Block 5): comprueba la identidad nueva contra el
+ * resto del catálogo **sin contarse a sí mismo**. El alta no lo pasa nunca —no tiene un libro
+ * propio del que excluirse— y por eso es opcional y no un segundo parámetro obligatorio que
+ * hubiera que inventarle un valor al alta.
  */
-function buscarConflicto(
+export function buscarConflicto(
   db: Database.Database,
   tituloNormalizado: string,
+  excluirId?: number,
 ): LibroEnConflicto | undefined {
-  return db.prepare(SQL_BUSCAR_CONFLICTO).get(tituloNormalizado) as LibroEnConflicto | undefined;
+  if (excluirId === undefined) {
+    return db.prepare(SQL_BUSCAR_CONFLICTO).get(tituloNormalizado) as LibroEnConflicto | undefined;
+  }
+
+  return db.prepare(SQL_BUSCAR_CONFLICTO_EXCLUYENDO).get(tituloNormalizado, excluirId) as
+    LibroEnConflicto | undefined;
 }
 
 /** Relee la fila recién insertada para devolver exactamente lo que quedó almacenado. */
@@ -263,7 +291,7 @@ function leerLibro(db: Database.Database, id: number): Libro {
  * sólo para comparar la clase le agregaría al repositorio una dependencia de runtime que
  * no necesita para nada más.
  */
-function esViolacionDeUnique(error: unknown): boolean {
+export function esViolacionDeUnique(error: unknown): boolean {
   if (typeof error !== 'object' || error === null || !('code' in error)) {
     return false;
   }

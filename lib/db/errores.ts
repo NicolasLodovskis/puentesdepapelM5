@@ -87,6 +87,24 @@ export type ResultadoVender =
   | { ok: false; motivo: 'libro_inexistente' };
 
 /**
+ * Resultado de una edición: unión discriminada de cuatro variantes (FEAT-001b Block 5: FR-03 a
+ * FR-06, FR-09, AC-04 a AC-11, AC-14).
+ *
+ * `editarLibro()` **no lanza por una condición de negocio**, igual que el alta y la venta: el
+ * campo inválido, el título duplicado y el libro que no está son valores de retorno. Sólo se
+ * propaga un fallo de infraestructura, que `app/acciones-libro.ts` traduce a un mensaje genérico
+ * (M8).
+ *
+ * `libro_inexistente` **no lleva payload**, por la misma razón que en `ResultadoVender`: se
+ * responde con un 404 indistinguible del de un id que no es un id (Block 3, riesgo R2).
+ */
+export type ResultadoEditar =
+  | { ok: true; libro: Libro }
+  | { ok: false; motivo: 'campos_invalidos'; errores: ErrorCampo[] }
+  | { ok: false; motivo: 'titulo_duplicado'; conflicto: LibroEnConflicto }
+  | { ok: false; motivo: 'libro_inexistente' };
+
+/**
  * El error del recálculo de identidad cuando dos o más libros pasan a compartirla (FR-11).
  *
  * **Es un error y no un valor de retorno**, al revés que los rechazos del alta: ocurre dentro
