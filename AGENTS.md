@@ -48,6 +48,7 @@ files and **propose the text for you to paste here**. You always confirm it.
 | Database | SQLite embebida (archivo .db único, sin servidor) vía better-sqlite3 13.0.2 — sin ORM |
 | Test runner | Vitest 4.1.10 (npm test → vitest run --coverage), cobertura con @vitest/coverage-v8 y umbrales al 80%. Sin entorno DOM ni runner e2e: las Server Actions se testean como funciones async. |
 | Linter / formatter | ESLint 9.39.5 vía CLI (npm run lint → eslint .), con eslint-config-next 16.3.0 + eslint-config-prettier. Prettier 3.9.6 (npm run format:check). `next lint` no existe desde Next 16. |
+| Typecheck | npx tsc --noEmit |
 | Package manager | npm (package-lock.json, y AGENTS.md documenta npm install / npm run dev / npm test) |
 
 ---

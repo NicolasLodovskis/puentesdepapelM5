@@ -25,3 +25,33 @@ body {
     sans-serif;
   line-height: 1.5;
 }
+
+/* Vista de detalle (FR-01). */
+.detalle {
+  max-width: 42rem;
+}
+
+.datos-del-libro {
+  display: grid;
+  grid-template-columns: max-content 1fr;
+  gap: 0.25rem 1rem;
+  margin: 0 0 1.5rem;
+}
+
+.datos-del-libro dt {
+  font-weight: 600;
+}
+
+.datos-del-libro dd {
+  margin: 0;
+}
+
+.operaciones ul {
+  margin: 0;
+  padding-left: 1.25rem;
+}
+
+/* La celda del enlace al detalle, en el listado. */
+.catalogo td[data-campo='detalle'] {
+  white-space: nowrap;
+}

@@ -1,5 +1,7 @@
 import type { Libro } from '@/lib/db/tipos';
 
+import { formatearCantidad, formatearPrecio, rutaDelDetalle, TEXTO_VENDER } from '../mensajes';
+
 /**
  * El catálogo, como tabla.
  *
@@ -15,11 +17,12 @@ import type { Libro } from '@/lib/db/tipos';
  * comentarios y no tiene forma de fallar en silencio.
  */
 
-/**
- * Formato de miles en castellano. Se construye una sola vez y no por fila: un
- * `Intl.NumberFormat` nuevo dentro del `map` sería 2.000 construcciones por renderizado.
+/*
+ * El formato del precio y el de las cantidades salen de `app/mensajes.ts` y no de un
+ * `Intl.NumberFormat` propio: el detalle muestra el mismo precio del mismo libro, y dos copias
+ * del formato divergen sin que nada se ponga rojo. La instancia sigue siendo única para toda la
+ * interfaz, que es lo que evita 2.000 construcciones por renderizado.
  */
-const MILES = new Intl.NumberFormat('es-AR', { maximumFractionDigits: 0 });
 
 interface PropsListado {
   libros: Libro[];
@@ -33,13 +36,17 @@ export function ListadoLibros({ libros }: PropsListado) {
 
   return (
     <table className="catalogo">
-      <caption>{libros.length === 1 ? '1 libro' : `${MILES.format(libros.length)} libros`}</caption>
+      <caption>
+        {libros.length === 1 ? '1 libro' : `${formatearCantidad(libros.length)} libros`}
+      </caption>
       <thead>
         <tr>
           <th scope="col">Título</th>
           <th scope="col">Editorial</th>
           <th scope="col">Stock</th>
           <th scope="col">Precio</th>
+          <th scope="col">Detalle</th>
+          <th scope="col">Venta</th>
         </tr>
       </thead>
       <tbody>
@@ -53,7 +60,44 @@ export function ListadoLibros({ libros }: PropsListado) {
             <td data-campo="titulo">{libro.titulo}</td>
             <td data-campo="editorial">{libro.editorial}</td>
             <td data-campo="stock">{libro.stock}</td>
-            <td data-campo="precio">{`$ ${MILES.format(libro.precio)}`}</td>
+            <td data-campo="precio">{formatearPrecio(libro.precio)}</td>
+            {/*
+              El enlace va en **su propia celda** y no envolviendo el título: envolverlo obligaría
+              a aflojar el extractor `celdas()` de los tests hasta admitir markup, y con él
+              pasaría un valor renderizado sin escapar donde hoy devuelve `''`. FR-01 pide que el
+              detalle sea alcanzable desde la fila, no que el título sea el enlace — y AC-17
+              necesita igual un control de venta distinguible del de ver.
+
+              Es un `<a>` pelado y no un control con estado ni un `<Link>`: dos mil filas con
+              estado propio —o con el prefetch de `next/link`, que es un componente cliente— son
+              dos mil componentes cliente, y el bench mide el armado del HTML en Node, así que no
+              vería la regresión (M11). En las pantallas donde el enlace es **uno** —el "volver al
+              catálogo" del detalle y del 404— sí se usa `<Link>`, que es además lo que exige la
+              regla `@next/next/no-html-link-for-pages` para las rutas estáticas.
+            */}
+            <td data-campo="detalle">
+              <a href={rutaDelDetalle(libro.id)}>Ver</a>
+            </td>
+            {/*
+              El control de venta de la fila **no vende**: lleva al detalle, donde la venta queda
+              pendiente de confirmación (AC-17). Un click de más acá no descuenta stock ni registra
+              una venta que después no se puede deshacer (riesgo aceptado A3).
+
+              Es un `<a>` y no un `<button>` que invoque el Server Action —eso sería la venta a un
+              click, exactamente lo que AC-17 prohíbe— y tampoco un `<form method="get">`, que
+              navega igual pero pierde lo que un enlace da gratis: click del medio, abrir en pestaña
+              nueva, copiar la dirección, y que un lector de pantalla anuncie un enlace en vez de un
+              botón que no envía nada.
+
+              **Comparte destino con el enlace de al lado, y está bien que lo comparta**: los dos
+              llevan al detalle porque ahí es donde se confirma la venta. Lo que AC-17 pide es que
+              el control sea distinguible del de ver, y lo son por su celda y por su texto —"Ver" y
+              "Vender"—, no por su URL. Sigue sin haber un byte de JavaScript de cliente por fila
+              (M11): son dos anclas, no dos componentes.
+            */}
+            <td data-campo="venta">
+              <a href={rutaDelDetalle(libro.id)}>{TEXTO_VENDER}</a>
+            </td>
           </tr>
         ))}
       </tbody>

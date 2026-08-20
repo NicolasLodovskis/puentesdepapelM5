@@ -20,6 +20,21 @@ export type OrigenPrecio =
 export type OrigenStock =
   'alta manual' | 'edición manual' | 'venta' | 'reactivación' | 'alta por Excel';
 
+/**
+ * Una fila de la tabla `ventas`: un ejemplar vendido (FR-07).
+ *
+ * **No lleva origen** y no le falta: toda fila de esa tabla es una venta. Y `precioVenta` es el
+ * precio **vigente del libro en el momento de la venta**, no el actual: es una copia deliberada,
+ * porque una corrección de precio posterior no puede reescribir lo que se cobró.
+ */
+export interface Venta {
+  id: number;
+  libroId: number;
+  /** ISO-8601 en UTC. */
+  fecha: string;
+  precioVenta: number;
+}
+
 /** Una fila de la tabla `libros`. */
 export interface Libro {
   id: number;

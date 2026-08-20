@@ -1,14 +1,19 @@
-import fs from 'node:fs';
-import path from 'node:path';
-
 import type Database from 'better-sqlite3';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
-import { buscarLibros } from '@/lib/db/consultas';
+import { buscarLibros, leerLibroPorId } from '@/lib/db/consultas';
 import type { EstadoLibro, Libro } from '@/lib/db/tipos';
 import { normalizarTitulo } from '@/lib/dominio/normalizar-titulo';
 import { plegarTexto } from '@/lib/dominio/plegar-texto';
 import { baseDePrueba } from '@/test/ayudas/base-de-prueba';
+import {
+  declaracionesEsperadas,
+  declaracionesSql,
+  filtraPorClavePrimaria,
+  fuenteDeModulo,
+  PREPARA_SIN_CONSTANTE,
+  sinComentarios,
+} from '@/test/ayudas/convenciones-sql';
 
 /**
  * Fecha fija para todas las semillas: `creado_en` no participa de la búsqueda ni del orden,
@@ -44,18 +49,22 @@ interface Semilla {
   estado?: EstadoLibro;
 }
 
-function sembrar(db: Database.Database, semilla: Semilla): void {
-  db.prepare(SQL_SEMBRAR).run(
-    semilla.titulo,
-    normalizarTitulo(semilla.titulo),
-    plegarTexto(semilla.titulo),
-    semilla.editorial,
-    plegarTexto(semilla.editorial),
-    STOCK_SEMILLA,
-    PRECIO_SEMILLA,
-    semilla.estado ?? 'activo',
-    FECHA,
-  );
+function sembrar(db: Database.Database, semilla: Semilla): number {
+  const insercion = db
+    .prepare(SQL_SEMBRAR)
+    .run(
+      semilla.titulo,
+      normalizarTitulo(semilla.titulo),
+      plegarTexto(semilla.titulo),
+      semilla.editorial,
+      plegarTexto(semilla.editorial),
+      STOCK_SEMILLA,
+      PRECIO_SEMILLA,
+      semilla.estado ?? 'activo',
+      FECHA,
+    );
+
+  return Number(insercion.lastInsertRowid);
 }
 
 /**
@@ -361,11 +370,76 @@ describe('buscarLibros()', () => {
   });
 });
 
-describe('convenciones de lib/db/consultas.ts', () => {
-  const fuente = fs.readFileSync(path.join(process.cwd(), 'lib/db/consultas.ts'), 'utf8');
+describe('leerLibroPorId()', () => {
+  let db: Database.Database;
 
-  /** Las sentencias declaradas como constantes de módulo, tal cual están en el archivo. */
-  const sentencias = Array.from(fuente.matchAll(/const SQL_[A-Z_]+ = `([\s\S]*?)`/gu), (m) => m[1]);
+  beforeEach(() => {
+    db = baseDePrueba();
+  });
+
+  afterEach(() => {
+    db.close();
+  });
+
+  it('devuelve el libro activo con sus diez columnas mapeadas (AC-01, FR-01)', () => {
+    const id = sembrar(db, { titulo: 'Cuentos, Los', editorial: 'Emecé' });
+
+    // El objeto completo, como en la búsqueda: el mapeo fila → `Libro` es explícito y las
+    // columnas TEXT de este fixture difieren entre sí, así que cualquier cruce se ve.
+    expect(leerLibroPorId(id, db)).toEqual({
+      id,
+      titulo: 'Cuentos, Los',
+      tituloNormalizado: 'los cuentos',
+      tituloOrden: 'cuentos, los',
+      editorial: 'Emecé',
+      editorialNormalizada: 'emece',
+      stock: STOCK_SEMILLA,
+      precio: PRECIO_SEMILLA,
+      estado: 'activo',
+      creadoEn: FECHA,
+    });
+  });
+
+  it('devuelve undefined para un id que no existe', () => {
+    const id = sembrar(db, { titulo: 'Rayuela', editorial: 'Sudamericana' });
+
+    expect(leerLibroPorId(id + 1, db)).toBeUndefined();
+
+    // Y el `undefined` no viene de que la función devuelva siempre lo mismo: el id sembrado sí
+    // trae su libro. Sin esta línea, un `return undefined` pelado pasaría el test.
+    expect(leerLibroPorId(id, db)?.titulo).toBe('Rayuela');
+  });
+
+  it('devuelve undefined para un libro archivado, igual que para uno inexistente (M5, R6)', () => {
+    const archivado = sembrar(db, { titulo: 'Zama', editorial: 'Sur', estado: 'archivado' });
+
+    expect(leerLibroPorId(archivado, db)).toBeUndefined();
+
+    // La mitad que hace falsable el filtro: el libro **está** en la tabla, así que lo que
+    // produce el `undefined` es el `estado = 'activo'` y no una fila ausente. Hoy nada archiva,
+    // por eso ningún test de negocio de FEAT-001a se pondría rojo si el filtro faltara.
+    expect(db.prepare('SELECT estado FROM libros WHERE id = ?').get(archivado)).toEqual({
+      estado: 'archivado',
+    });
+  });
+});
+
+describe('convenciones de lib/db/consultas.ts', () => {
+  const RELATIVO = 'lib/db/consultas.ts';
+  const fuente = fuenteDeModulo(RELATIVO);
+
+  /*
+   * El extractor de sentencias y el reconocedor del `prepare` salen de
+   * `test/ayudas/convenciones-sql.ts`, que es de donde los toman las demás guardias del repositorio.
+   * Este archivo se había quedado con su propia copia, y las dos copias eran `SQL_[A-Z_]+`: ciegas
+   * al dígito del nombre. Como el extractor y su meta-guardia usaban el **mismo** patrón ciego, la
+   * meta-guardia comparaba `0 === 0` y no avisaba, y un `const SQL_2_ORDENAR = \`UPDATE libros SET
+   * estado = estado WHERE id = ?\`` —un `UPDATE` a `libros` desde el módulo de lectura, sin filtro de
+   * estado— dejaba la suite entera en verde (medido: 318/318; la contraprueba, el mismo nombre sin
+   * dígito, se ponía roja). Las reglas de abajo no cambiaron: cambió de dónde sale la lista que
+   * recorren.
+   */
+  const sentencias = declaracionesSql(RELATIVO).map(({ sentencia }) => sentencia);
 
   it('marca server-only antes que ningún otro import', () => {
     expect(fuente.match(/^import .*$/mu)?.[0]).toBe("import 'server-only';");
@@ -379,7 +453,7 @@ describe('convenciones de lib/db/consultas.ts', () => {
     // vive en una línea sin ninguna palabra clave SQL, que es donde el filtro por líneas de
     // abajo no ve nada.
     expect(fuente).toMatch(/db\.prepare\(/u);
-    expect(fuente).not.toMatch(/db\.prepare\(\s*(?!SQL_[A-Z_]+\s*\))/u);
+    expect(fuente).not.toMatch(PREPARA_SIN_CONSTANTE);
 
     // Y ninguna sentencia interpola en su propio cuerpo.
     for (const sentencia of sentencias) {
@@ -415,21 +489,68 @@ describe('convenciones de lib/db/consultas.ts', () => {
     // simples o con `String.raw` quedaría fuera del array y sus reglas —`estado = 'activo'`,
     // `ORDER BY titulo_orden`, `ESCAPE`— no se comprobarían **en silencio**, satisfechas por
     // las otras.
-    expect(sentencias).toHaveLength((fuente.match(/const SQL_[A-Z_]+/gu) ?? []).length);
+    expect(sentencias).toHaveLength(declaracionesEsperadas(RELATIVO));
     expect(sentencias.length).toBeGreaterThan(0);
   });
 
-  it('filtra estado activo y ordena por titulo_orden en todas sus sentencias', () => {
-    // El criterio de cierre del bloque: *toda* sentencia lleva `estado = 'activo'`. Hoy es un
-    // no-op porque nada archiva, así que ningún test de negocio se pondría rojo si faltara en
-    // una sentencia nueva; este sí.
+  /*
+   * El reconocedor del filtro por clave primaria y los dos despejes que lo sostienen viven en
+   * `test/ayudas/convenciones-sql.ts`: la guardia de `lib/db/ventas.ts` necesita el **mismo**
+   * reconocedor para exigir lo contrario que acá —que toda sentencia que opera sobre una fila
+   * concreta de `libros` filtre por igualdad exacta—, y dos copias del mismo lookbehind divergen sin
+   * que nada se ponga rojo. Las meta-guardias que fijan su comportamiento siguen siendo las de este
+   * archivo, más abajo, sin una aserción cambiada.
+   */
+  const porClavePrimaria = sentencias.filter((sentencia) => filtraPorClavePrimaria(sentencia));
+  const ordenadas = sentencias.filter((sentencia) => !filtraPorClavePrimaria(sentencia));
+
+  it('filtra estado activo en todas sus sentencias, sin excepción', () => {
+    // La regla que **no** se acota (M5): hoy es un no-op porque nada archiva, así que ningún
+    // test de negocio se pondría rojo si faltara en una sentencia nueva; este sí. Y la
+    // prohibición de ordenar por la identidad tampoco se acota: `titulo_normalizado` mueve el
+    // artículo al frente, así que ordenar por ella pondría `"Cuentos, Los"` entre las L.
+    //
+    // Las dos se comprueban sobre la sentencia **despejada de comentarios** y no sobre la cruda:
+    // con la sentencia cruda, un `-- estado = 'activo'` comentado satisfacía la regla con la
+    // sentencia sin ningún filtro de estado, que es exactamente el agujero que la regla vigila.
+    // Es el mismo tratamiento que ya recibía la excepción del `ORDER BY`, tres líneas más arriba,
+    // y estas dos reglas —las que no se acotan— habían quedado con el estándar más flojo.
     expect(sentencias.length).toBeGreaterThan(0);
     for (const sentencia of sentencias) {
-      expect(sentencia).toMatch(/estado = 'activo'/u);
-      expect(sentencia).toMatch(/ORDER BY\s+titulo_orden/u);
-      expect(sentencia).not.toMatch(/ORDER BY\s+titulo_normalizado/u);
+      expect(sinComentarios(sentencia)).toMatch(/estado = 'activo'/u);
+      expect(sinComentarios(sentencia)).not.toMatch(/ORDER BY\s+titulo_normalizado/u);
     }
   });
+
+  it('ordena por titulo_orden toda sentencia que no filtre por clave primaria', () => {
+    // La única de las tres reglas que se acota, y sólo por lo que estorba: pedirle un `ORDER BY`
+    // a un `WHERE id = ?` no ordena nada —devuelve una fila— y obligaría a escribirlo de adorno.
+    //
+    // También sobre la sentencia despejada, por lo mismo que la regla de arriba: la exigencia no
+    // la puede satisfacer un `-- ORDER BY titulo_orden` escrito en un comentario.
+    for (const sentencia of ordenadas) {
+      expect(sinComentarios(sentencia)).toMatch(/ORDER BY\s+titulo_orden/u);
+    }
+  });
+
+  it('no deja vacío el conjunto de sentencias que sí deben ordenar', () => {
+    // Meta-guardia del particionado (M5): un patrón demasiado ancho —`/id/`, o el lookbehind
+    // borrado— exceptuaría a **todas** las sentencias y la guardia de arriba pasaría en silencio
+    // sin haber mirado ninguna. Se exige además que la excepción exista de verdad: si nadie
+    // filtrara por clave primaria, acotar la regla no tendría motivo y habría que revertirlo.
+    expect(ordenadas.length).toBeGreaterThan(0);
+    expect(porClavePrimaria.length).toBeGreaterThan(0);
+  });
+
+  /*
+   * Las **meta-guardias** del reconocedor y de los despejes ya no viven acá: se movieron a
+   * `test/convenciones/sql.test.ts`, sin una aserción cambiada. El motivo es de ubicación y no de
+   * contenido: `test/ayudas/convenciones-sql.ts` es infraestructura de las guardias de este módulo,
+   * de `lib/db/ventas.ts` y, en el Block 5, de `lib/db/edicion.ts`, así que sus aserciones no pueden
+   * quedar dentro de un describe que habla de **otro** módulo —reescribirlo o borrarlo, que es
+   * razonable, dejaba al reconocedor sin una sola aserción y a la guardia de `ventas.ts` apoyada en
+   * un lookbehind que nadie prueba—. Las reglas de **este** archivo se siguen afirmando acá.
+   */
 
   it('declara ESCAPE en toda sentencia con LIKE', () => {
     // Un `LIKE` sin `ESCAPE` deja de escapar aunque el término venga escapado: la barra

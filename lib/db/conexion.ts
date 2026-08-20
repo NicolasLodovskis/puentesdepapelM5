@@ -30,6 +30,25 @@ export function aplicarPragmas(db: Database.Database): void {
 }
 
 /**
+ * Cierra un handle **sin dejar que el cierre tape el error que lo trajo hasta acá**.
+ *
+ * Es el mismo criterio que el `ROLLBACK` de `migrar.ts`, y por el mismo motivo: cuando se está
+ * atendiendo un fallo, el error que hay que propagar es el original —el que dice por qué no
+ * arranca la app—, y no el que produjo la limpieza. Un `close()` que lanza deja el descriptor
+ * igual de perdido que antes, pero al menos no se pierde el diagnóstico.
+ *
+ * El fallo del cierre va al log del servidor, que es donde lo lee quien mantiene la instalación:
+ * tragarlo del todo escondería una fuga de handles real.
+ */
+function cerrarSinTapar(db: Database.Database): void {
+  try {
+    db.close();
+  } catch (errorAlCerrar) {
+    console.error('No se pudo cerrar la conexión después de un arranque fallido.', errorAlCerrar);
+  }
+}
+
+/**
  * Devuelve la conexión única a la base, creándola la primera vez.
  *
  * La instancia se cachea en `globalThis`, no en una `const` de módulo: el HMR de
@@ -42,6 +61,13 @@ export function aplicarPragmas(db: Database.Database): void {
  *
  * Un fallo al abrir el archivo se propaga sin capturar: es un fallo de instalación,
  * no una condición de negocio.
+ *
+ * Si en cambio falla la **migración** —el caso concreto es la colisión de identidad del
+ * recálculo de FR-11—, el error también se propaga, pero antes se cierra el handle
+ * (mitigación 10, riesgo R10). Sin ese cierre la conexión no queda cacheada y tampoco liberada:
+ * cada navegación y cada Server Action abriría un `Database` nuevo sobre el mismo archivo con
+ * WAL activo y ninguno se cerraría, así que "la app no arranca" sería en realidad "la app falla
+ * y filtra un descriptor por navegación".
  */
 export function obtenerDb(): Database.Database {
   const cacheada = globalThis.__puentesDePapelDb;
@@ -53,8 +79,16 @@ export function obtenerDb(): Database.Database {
   fs.mkdirSync(path.dirname(ruta), { recursive: true });
 
   const db = new Database(ruta);
-  aplicarPragmas(db);
-  migrar(db);
+
+  try {
+    aplicarPragmas(db);
+    migrar(db);
+  } catch (error) {
+    // Los pragmas entran en el `try` junto con la migración: un fallo ahí filtra el mismo
+    // descriptor por el mismo camino.
+    cerrarSinTapar(db);
+    throw error;
+  }
 
   globalThis.__puentesDePapelDb = db;
   return db;

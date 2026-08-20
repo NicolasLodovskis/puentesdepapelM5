@@ -1,8 +1,10 @@
 import { buscarLibros } from '@/lib/db/consultas';
+import type { Libro } from '@/lib/db/tipos';
 
 import { Buscador, PARAMETRO_BUSQUEDA } from './componentes/buscador';
 import { FormularioAlta } from './componentes/formulario-alta';
 import { ListadoLibros } from './componentes/listado-libros';
+import { resolverFalloDelCatalogo } from './estado-del-catalogo';
 
 /**
  * Pantalla principal: alta manual, buscador y catálogo (FR-01, FR-04).
@@ -41,7 +43,17 @@ function terminoDeBusqueda(valor: string | string[] | undefined): string | null 
 export default async function Pagina({ searchParams }: PropsPagina) {
   const consulta = await searchParams;
   const termino = terminoDeBusqueda(consulta[PARAMETRO_BUSQUEDA]);
-  const libros = buscarLibros(termino);
+
+  let libros: Libro[];
+
+  try {
+    libros = buscarLibros(termino);
+  } catch (error) {
+    // El catálogo que no se pudo migrar tiene pantalla propia y texto curado (FR-11, AC-16): la
+    // app **no abre**, pero informa. Qué se renderiza y qué se relanza lo decide el helper
+    // compartido, en un solo lugar para todas las rutas que leen la base.
+    return resolverFalloDelCatalogo(error);
+  }
 
   return (
     <main className="pantalla">
