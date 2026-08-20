@@ -12,21 +12,18 @@
 | Sub-ticket | Title | PRD | Dependencies | Status | Integración |
 |---|---|---|---|---|---|
 | FEAT-001a | Cimientos y catálogo | `prd-FEAT-001a.md` | ninguna | done | mergeada a `main` vía PR #1 el 2026-08-11 |
-| FEAT-001b | Venta y edición | `prd-FEAT-001b.md` | depende de a | active | — |
-| FEAT-001c | Portadas | `prd-FEAT-001c.md` | depende de a y de b | pending | — |
+| FEAT-001b | Venta y edición | `prd-FEAT-001b.md` | depende de a | done | mergeada a `main` vía PR #2 el 2026-08-20 |
+| FEAT-001c | Portadas | `prd-FEAT-001c.md` | depende de a y de b | active | — |
 
 ### Requisitos de entrada heredados de FEAT-001a
 
 Los dejó escritos la verificación de ese sub-ticket (`docs/daw/reports/verify-FEAT-001a.md`) y no
 viven en ningún otro lado:
 
-- **FEAT-001b** — un título con puntuación final (`"Principito, El."`) normaliza distinto de
-  `"El Principito"`, así que el `UNIQUE` no impide que el mismo libro entre dos veces. En el excel de
-  precios sólo produce fricción (la fila se reporta como no encontrada), pero en el **excel de alta
-  masiva** entra como libro nuevo, con su propio stock, precio e historiales: queda el mismo libro
-  dos veces, con dos ids, y las actualizaciones de precio se reparten entre los dos según cómo esté
-  escrita cada fila. No se detecta al ojo en 2.000 títulos y no se puede fusionar sin borrar
-  historial, que el Principio III prohíbe.
+- ~~**FEAT-001b** — un título con puntuación final (`"Principito, El."`) normaliza distinto de
+  `"El Principito"`, así que el `UNIQUE` no impide que el mismo libro entre dos veces.~~ **Resuelto
+  en FEAT-001b** (FR-10/AC-13): `normalizarTitulo()` recorta la puntuación final antes de derivar la
+  identidad, y la migración 003 recalculó la identidad de los libros ya cargados.
 - **Ticket propio, antes de que la librera cargue su inventario real** — FR-04 pide comparación «en
   español» y el orden es la colación binaria de SQLite, así que la `ñ` y los diacríticos que el
   plegado preserva ordenan después de la Z. Es una migración de esquema: hecha sobre la base vacía
