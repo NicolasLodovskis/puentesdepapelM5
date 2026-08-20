@@ -515,7 +515,11 @@ describe('el precio se formatea en un solo lugar', () => {
     // Dos pantallas que formatean el precio por su cuenta divergen sin que nada se ponga rojo:
     // los tests de cada una fijan su propio literal y los dos siguen verdes con `$ 9.500` acá y
     // `$9500` allá. Ésta es la aserción que ata las dos.
-    const listado = renderToStaticMarkup(createElement(ListadoLibros, { libros: [LIBRO] }));
+    const listado = renderToStaticMarkup(
+      createElement(ListadoLibros, {
+        libros: [{ ...LIBRO, rutaPortada: '/logo-puentes-de-papel-96.jpg' }],
+      }),
+    );
     const detalle = renderToStaticMarkup(
       createElement(DetalleLibro, {
         libro: LIBRO,
