@@ -153,6 +153,41 @@ export const MENSAJE_ERROR_DE_EDICION =
   'Volvé a intentar; si sigue fallando, hay que revisar la instalación.';
 
 /**
+ * Resultado de asignar o quitar la foto de portada de un libro (FEAT-001c Block 3: FR-02, FR-03).
+ *
+ * **Una sola variante, mismo shape y mismo motivo que `ResultadoEdicion`.** Tras el éxito
+ * `asignarFoto()` **redirige** (M3, riesgo R4): `useActionState` sólo puede recibir de vuelta un
+ * rechazo —de campo, o el genérico de infraestructura—, nunca un `ok: true` que ningún camino
+ * produce.
+ */
+export type ResultadoAsignarFoto = { ok: false; mensajes: MensajesPorCampo; general?: string };
+
+/** Encabezado de la sección de portada de la vista de detalle (FR-02, FR-03). */
+export const TITULO_PORTADA = 'Foto de portada';
+
+/** Texto del control que asigna o reemplaza la foto (FR-02, AC-05). */
+export const TEXTO_CAMBIAR_FOTO = 'Cambiar foto';
+
+/**
+ * Texto del control que quita la foto (FR-03, AC-06). Sólo se ofrece cuando el libro tiene una
+ * foto vigente (`FormularioPortada`, prop `tienePortada`): quitar una que no existe no tiene
+ * sentido para la usuaria y evita un viaje al servidor que sólo puede terminar en no-op.
+ */
+export const TEXTO_QUITAR_FOTO = 'Quitar foto';
+
+/**
+ * El texto con el que asignar o quitar una foto **fallan**, cuando fallan por infraestructura.
+ *
+ * Mismo criterio que `MENSAJE_ERROR_DE_VENTA`/`MENSAJE_ERROR_DE_EDICION` (M8, extendido a
+ * `lib/portadas/` por M16): no es el error del motor ni la ruta del disco, y su público real es
+ * el log del servidor, no la usuaria. Una sola constante para las dos acciones: las dos gestionan
+ * la misma foto y ninguna necesita distinguir el motivo exacto del fallo de infraestructura.
+ */
+export const MENSAJE_ERROR_DE_FOTO =
+  'No se pudo guardar el cambio en la foto por un problema del sistema. No se modificó nada. ' +
+  'Volvé a intentar; si sigue fallando, hay que revisar la instalación.';
+
+/**
  * La ruta de la vista de detalle de un libro.
  *
  * Vive acá, junto a los textos de la interfaz, y no repetida en cada pantalla: la escriben el

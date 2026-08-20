@@ -18,6 +18,13 @@ const TAMANIO_MAXIMO_BYTES = 10 * 1024 * 1024;
 const LADO_MINIATURA = 96;
 
 /**
+ * El logo de la aplicación, ya optimizado al tamaño del recuadro (FR-06). Es un asset estático
+ * de `public/`, compartido por las 2.000 filas del listado que no tengan portada — una sola URL
+ * cacheable por el navegador, sin pasar por `app/portadas/[id]/route.ts` (Block 4).
+ */
+const RUTA_LOGO_POR_DEFECTO = '/logo-puentes-de-papel-96.jpg';
+
+/**
  * El motivo por el que se rechazó la foto de portada.
  *
  * `CampoValidado<T>` no es un tipo compartido en el repositorio hoy (cada módulo de `lib/db/`
@@ -130,4 +137,14 @@ export function leerPortada(id: number): Buffer | undefined {
   } catch {
     return undefined;
   }
+}
+
+/**
+ * La ruta que hay que mostrar como portada vigente de un libro: la propia foto si existe, o el
+ * logo por defecto si no (FR-06). **La única función que decide esta rama** — la usan
+ * `app/libros/[id]/page.tsx` (Block 3) y `app/page.tsx` (Block 4), para no reimplementar el
+ * mismo `if` en dos pantallas y arriesgar que diverjan.
+ */
+export function resolverRutaMostrable(id: number): string {
+  return tienePortada(id) ? `/portadas/${String(id)}` : RUTA_LOGO_POR_DEFECTO;
 }

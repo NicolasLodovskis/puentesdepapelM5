@@ -6,14 +6,17 @@ import { notFound, redirect } from 'next/navigation';
 import { editarLibro } from '@/lib/db/edicion';
 import type { ResultadoEditar, ResultadoVender } from '@/lib/db/errores';
 import { venderEjemplar } from '@/lib/db/ventas';
+import { type CampoValidado, guardarPortada, quitarPortada } from '@/lib/portadas/almacenamiento';
 
 import {
   identificadorDeLibro,
   MENSAJE_ERROR_DE_EDICION,
+  MENSAJE_ERROR_DE_FOTO,
   MENSAJE_ERROR_DE_VENTA,
   type MensajesPorCampo,
   mensajeDeCampo,
   mensajeDeConflicto,
+  type ResultadoAsignarFoto,
   type ResultadoEdicion,
   rutaDelDetalle,
 } from './mensajes';
@@ -176,6 +179,97 @@ export async function edicionDeLibro(
   }
 
   // Sin esto, la edición se guarda y las dos pantallas siguen mostrando los datos anteriores.
+  revalidatePath('/');
+  revalidatePath(rutaDelDetalle(id));
+
+  redirect(rutaDelDetalle(id));
+}
+
+/**
+ * Asigna o reemplaza la foto de portada de un libro existente (FR-02, AC-05).
+ *
+ * Reemplaza **sin pedir confirmación**, igual que `edicionDeLibro()` sobrescribe sin
+ * confirmación los otros campos: FR-02 dice "asignar o reemplazar", no "reemplazar con aviso".
+ *
+ * El id viaja en un campo oculto del formulario y se valida con la misma función que venta y
+ * edición (mitigación M19, mismo patrón M1). `guardarPortada()` (Block 1) valida, redimensiona y
+ * escribe en un solo paso: si la foto es inválida no escribe nada, así que la portada anterior
+ * —si había— queda intacta (AC-07). Sólo tras el éxito se redirige (mitigación M3, mismo patrón
+ * que venta y edición): el reenvío del navegador no puede repetir la asignación.
+ */
+export async function asignarFoto(
+  estadoPrevio: ResultadoAsignarFoto | null,
+  datos: FormData,
+): Promise<ResultadoAsignarFoto> {
+  const id = identificadorDeLibro(datos.get('id'));
+
+  if (id === undefined) {
+    notFound();
+  }
+
+  const archivoFoto = datos.get('foto');
+  const bytesOriginales =
+    archivoFoto instanceof File ? Buffer.from(await archivoFoto.arrayBuffer()) : Buffer.alloc(0);
+
+  let resultado: CampoValidado<Buffer>;
+
+  try {
+    resultado = await guardarPortada(id, bytesOriginales);
+  } catch (error) {
+    // Fallo de infraestructura (disco lleno, permisos), no una condición de negocio: se
+    // registra —sin el contenido del formulario ni el buffer de la imagen (M16)— y se
+    // devuelve el mensaje genérico. No se redirige: el formulario sigue en pantalla.
+    console.error('Falló asignar una foto de portada por un problema de infraestructura.', error);
+
+    return { ok: false, mensajes: {}, general: MENSAJE_ERROR_DE_FOTO };
+  }
+
+  if (!resultado.ok) {
+    // Formato no admitido o archivo demasiado grande: rechazo de campo, no se escribió nada
+    // (AC-07). `resultado.error` es estructuralmente un `ErrorCampo` (campo `'foto'` ya forma
+    // parte de `CampoLibro`), así que entra sin adaptador en `mensajeDeCampo()`.
+    return { ok: false, mensajes: { foto: mensajeDeCampo(resultado.error) } };
+  }
+
+  // Sin esto, la foto queda asignada y las dos pantallas siguen mostrando la anterior (o el
+  // logo, si no había ninguna).
+  revalidatePath('/');
+  revalidatePath(rutaDelDetalle(id));
+
+  redirect(rutaDelDetalle(id));
+}
+
+/**
+ * Quita la foto de portada de un libro existente, sin alterar ningún otro dato (FR-03, FR-04,
+ * AC-06).
+ *
+ * Sigue el molde de `ventaDeLibro()`: no hay ningún campo que validar más que el id, así que no
+ * hace falta `useActionState`. `quitarPortada()` (Block 1) es puramente el filesystem —no
+ * ejecuta SQL ni abre el motor embebido— así que por construcción no puede escribir una entrada
+ * de historial de ventas, stock o precio (FR-04): título, editorial, stock y precio del libro
+ * quedan exactamente como estaban.
+ */
+export async function quitarFoto(datos: FormData): Promise<void> {
+  const id = identificadorDeLibro(datos.get('id'));
+
+  if (id === undefined) {
+    // 404 sin tocar el filesystem, indistinguible del de un id que no existe (mismo criterio
+    // que venta y edición, riesgo R2).
+    notFound();
+  }
+
+  try {
+    quitarPortada(id);
+  } catch (error) {
+    // Fallo de infraestructura (permisos, por ejemplo) que no sea "no había portada" —eso ya lo
+    // absorbe `quitarPortada()`—. Se registra sin el texto nativo de la excepción (M16) y se
+    // relanza un mensaje curado, mismo molde que `ventaDeLibro()`.
+    console.error('Falló quitar una foto de portada por un problema de infraestructura.', error);
+
+    throw new Error(MENSAJE_ERROR_DE_FOTO);
+  }
+
+  // Sin esto, la foto se quita y las dos pantallas siguen mostrando la anterior.
   revalidatePath('/');
   revalidatePath(rutaDelDetalle(id));
 
