@@ -5,6 +5,7 @@ import path from 'node:path';
 import type Database from 'better-sqlite3';
 import { createElement } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
+import sharp from 'sharp';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { altaDeLibro } from '@/app/acciones';
@@ -16,6 +17,7 @@ import { MENSAJE_CAMPO_INVALIDO, mensajeDeCampo } from '@/app/mensajes';
 import Pagina from '@/app/page';
 import { buscarLibros } from '@/lib/db/consultas';
 import type { ErrorCampo } from '@/lib/db/errores';
+import { tienePortada } from '@/lib/portadas/almacenamiento';
 import { baseDePrueba, DIRECTORIO_TEMPORAL } from '@/test/ayudas/base-de-prueba';
 
 /**
@@ -85,13 +87,28 @@ const entradasDeCrearLibro = vi.hoisted(() => [] as unknown[]);
 vi.mock('@/lib/db/libros', async (importarOriginal) => {
   const original = await importarOriginal<typeof import('@/lib/db/libros')>();
 
-  const crearLibro: typeof original.crearLibro = (entrada, db) => {
+  const crearLibro: typeof original.crearLibro = (entrada, db, foto) => {
     entradasDeCrearLibro.push(entrada);
 
-    return original.crearLibro(entrada, db);
+    return original.crearLibro(entrada, db, foto);
   };
 
   return { ...original, crearLibro };
+});
+
+/**
+ * Espía de `guardarPortadaProcesada()` (FEAT-001c Block 2): envuelve la implementación real
+ * —los tests de escritura efectiva la necesitan de verdad— y permite forzar, por test, un
+ * fallo de infraestructura DESPUÉS de que `crearLibro()` ya tuvo éxito (riesgo aceptado A4).
+ */
+const guardarPortadaProcesadaMock = vi.hoisted(() => vi.fn());
+
+vi.mock('@/lib/portadas/almacenamiento', async (importarOriginal) => {
+  const original = await importarOriginal<typeof import('@/lib/portadas/almacenamiento')>();
+
+  guardarPortadaProcesadaMock.mockImplementation(original.guardarPortadaProcesada);
+
+  return { ...original, guardarPortadaProcesada: guardarPortadaProcesadaMock };
 });
 
 /** Un alta que el repositorio acepta. Los cuatro campos viajan como texto, igual que en el navegador. */
@@ -102,7 +119,7 @@ const ALTA_VALIDA = {
   precio: '1200',
 } as const;
 
-function formulario(campos: Record<string, string>): FormData {
+function formulario(campos: Record<string, string | File>): FormData {
   const datos = new FormData();
 
   for (const [campo, valor] of Object.entries(campos)) {
@@ -112,12 +129,28 @@ function formulario(campos: Record<string, string>): FormData {
   return datos;
 }
 
+/** Un `File` como el que arma el navegador al adjuntar una foto (FEAT-001c Block 2). */
+function archivo(bytes: Buffer, nombre = 'portada.jpg', tipo = 'image/jpeg'): File {
+  // `new Uint8Array(bytes)` y no `bytes` directo: el `Buffer` de Node tipa su `.buffer` como
+  // `ArrayBufferLike` (admite `SharedArrayBuffer`), que no es un `BlobPart` válido para `File`.
+  return new File([new Uint8Array(bytes)], nombre, { type: tipo });
+}
+
+/** Un JPEG real y chico, para no depender de un fixture en el repositorio. */
+async function imagenValida(): Promise<Buffer> {
+  return sharp({
+    create: { width: 200, height: 150, channels: 3, background: { r: 10, g: 20, b: 30 } },
+  })
+    .jpeg()
+    .toBuffer();
+}
+
 /**
  * Da de alta un libro por el mismo camino que la usuaria: el Server Action.
  *
  * El estado previo va en `null`, que es lo que `useActionState` pasa en el primer envío.
  */
-async function alta(campos: Record<string, string>) {
+async function alta(campos: Record<string, string | File>) {
   return altaDeLibro(null, formulario(campos));
 }
 
@@ -152,11 +185,20 @@ function celdas(html: string, campo: string): string[] {
 }
 
 describe('altaDeLibro()', () => {
-  beforeEach(() => {
+  beforeEach(async () => {
     db = baseDePrueba();
     conexionRota = false;
     revalidar.mockClear();
     entradasDeCrearLibro.length = 0;
+
+    // `afterEach` corre `vi.restoreAllMocks()`, que a un `vi.fn()` sin spy detrás lo deja sin
+    // implementación: se reafirma la real en cada test para que sobreviva al restore del test
+    // anterior (y no sólo al primero de la describe).
+    const real = await vi.importActual<typeof import('@/lib/portadas/almacenamiento')>(
+      '@/lib/portadas/almacenamiento',
+    );
+    guardarPortadaProcesadaMock.mockReset();
+    guardarPortadaProcesadaMock.mockImplementation(real.guardarPortadaProcesada);
   });
 
   afterEach(() => {
@@ -299,6 +341,96 @@ describe('altaDeLibro()', () => {
     const registrado = registro.mock.calls.flat().map(String).join(' ');
     expect(registrado).not.toContain(ALTA_VALIDA.titulo);
     expect(registrado).not.toContain(ALTA_VALIDA.editorial);
+  });
+
+  /**
+   * FEAT-001c Block 2 (FR-01): el alta puede llevar una foto de portada opcional. Los siete
+   * tests obligatorios del bloque, en el mismo orden en que la spec los enumera.
+   */
+  describe('con foto de portada (FEAT-001c Block 2, FR-01)', () => {
+    it('sin adjuntar ninguna foto el alta sigue siendo válida (mitad de AC-01, regresión)', async () => {
+      const resultado = await alta({ ...ALTA_VALIDA });
+
+      expect(resultado).toEqual({ ok: true, mensaje: expect.stringMatching(/\S/u) });
+      expect(titulosDelCatalogo()).toEqual(['El Aleph']);
+    });
+
+    it('con una foto válida crea el libro y guarda el archivo procesado en disco (otra mitad de AC-01)', async () => {
+      const bytes = await imagenValida();
+
+      const resultado = await alta({ ...ALTA_VALIDA, foto: archivo(bytes) });
+
+      expect(resultado).toEqual({ ok: true, mensaje: expect.stringMatching(/\S/u) });
+
+      const [libro] = buscarLibros('aleph', db);
+      expect(libro).toBeDefined();
+      expect(tienePortada(libro?.id ?? -1)).toBe(true);
+    });
+
+    it('con una foto de formato inválido y el título vacío devuelve los dos rechazos juntos, y no crea nada (AC-07)', async () => {
+      const basura = Buffer.from('esto definitivamente no es una imagen', 'utf8');
+
+      const resultado = await alta({ ...ALTA_VALIDA, titulo: '', foto: archivo(basura) });
+
+      expect(resultado.ok).toBe(false);
+      if (resultado.ok) return;
+      // Los dos rechazos juntos, no sólo uno (hallazgo del arch-auditor ya resuelto en Block 5).
+      expect(Object.keys(resultado.mensajes).sort()).toEqual(['foto', 'titulo']);
+      expect(resultado.mensajes.titulo).toMatch(/\S/u);
+      expect(resultado.mensajes.foto).toMatch(/\S/u);
+      expect(titulosDelCatalogo()).toEqual([]);
+    });
+
+    it('con una foto de más de 10 MB rechaza el campo foto y no crea el libro (AC-07)', async () => {
+      const demasiadoGrande = Buffer.alloc(10 * 1024 * 1024 + 1);
+
+      const resultado = await alta({ ...ALTA_VALIDA, foto: archivo(demasiadoGrande) });
+
+      expect(resultado).toEqual({
+        ok: false,
+        mensajes: { foto: expect.stringMatching(/\S/u) },
+      });
+      expect(titulosDelCatalogo()).toEqual([]);
+    });
+
+    it('MENSAJES.foto.formato_no_admitido y MENSAJES.foto.demasiado_grande existen y no están vacíos', () => {
+      const formatoNoAdmitido = mensajeDeCampo({ campo: 'foto', detalle: 'formato_no_admitido' });
+      const demasiadoGrande = mensajeDeCampo({ campo: 'foto', detalle: 'demasiado_grande' });
+
+      expect(formatoNoAdmitido).toMatch(/\S/u);
+      expect(demasiadoGrande).toMatch(/\S/u);
+      expect(formatoNoAdmitido).not.toBe(MENSAJE_CAMPO_INVALIDO);
+      expect(demasiadoGrande).not.toBe(MENSAJE_CAMPO_INVALIDO);
+    });
+
+    // El fallo de infraestructura de crearLibro() con una foto en el medio es el mismo camino
+    // que el test "ante un fallo de infraestructura devuelve un mensaje genérico sin texto de
+    // SQLite" ya cubre (no cambia con la foto, que ni siquiera llega a escribirse porque
+    // `crearLibro()` no tuvo éxito): se deja esta constancia en vez de duplicarlo.
+
+    it('si falla al escribir la portada DESPUÉS de crear el libro, el alta redirige a éxito igual (riesgo A4) y no loguea el buffer', async () => {
+      const registro = vi.spyOn(console, 'error').mockImplementation(() => {});
+      const bytes = await imagenValida();
+      guardarPortadaProcesadaMock.mockImplementationOnce(() => {
+        throw new Error('ENOSPC: no space left on device');
+      });
+
+      const resultado = await alta({ ...ALTA_VALIDA, foto: archivo(bytes) });
+
+      // A4: el alta sigue siendo exitosa aunque la escritura de la foto haya fallado.
+      expect(resultado).toEqual({ ok: true, mensaje: expect.stringMatching(/\S/u) });
+      expect(titulosDelCatalogo()).toEqual(['El Aleph']);
+
+      expect(registro).toHaveBeenCalled();
+      const contieneElBuffer = registro.mock.calls
+        .flat()
+        .some(
+          (valor) =>
+            Buffer.isBuffer(valor) ||
+            (Buffer.isBuffer(bytes) && String(valor).includes(bytes.toString('latin1'))),
+        );
+      expect(contieneElBuffer).toBe(false);
+    });
   });
 });
 

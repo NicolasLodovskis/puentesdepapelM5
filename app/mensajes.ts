@@ -297,6 +297,14 @@ const MENSAJES: Record<CampoLibro, Partial<Record<DetalleCampo, string>>> = {
       'o decimales. Escribilo sin puntos: 1234.',
     fuera_de_rango: 'El precio tiene que ser mayor que 0.',
   },
+  // FEAT-001c Block 2 (FR-01): la foto es opcional, pero si se adjunta se valida igual que
+  // cualquier otro campo. Ninguno de los dos motivos nombra `sharp`/`libvips` (mitigación M16).
+  foto: {
+    formato_no_admitido:
+      'Ese archivo no se pudo abrir como una imagen. Probá con otra foto, en un formato ' +
+      'más común (JPEG, PNG).',
+    demasiado_grande: 'La foto pesa más de 10 MB. Subí una versión más liviana.',
+  },
 };
 
 /** Traduce un rechazo de campo. Nunca devuelve `undefined`: ver `MENSAJE_CAMPO_INVALIDO`. */

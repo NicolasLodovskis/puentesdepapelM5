@@ -99,6 +99,15 @@ export function CamposDeAlta({ estado, enviarAlta, enviando }: PropsCampos) {
       <p className="error-de-campo">{mensajes.precio}</p>
 
       {/*
+        Sin `required` (FR-01: el alta sin foto sigue siendo válida). Al llevar un `<input
+        type="file">`, el navegador envía el formulario como `multipart/form-data`
+        automáticamente, sin que haga falta fijar `encType` a mano.
+      */}
+      <label htmlFor="foto">Foto de portada</label>
+      <input id="foto" name="foto" type="file" accept="image/*" />
+      <p className="error-de-campo">{mensajes.foto}</p>
+
+      {/*
         Bloqueado mientras el alta viaja: dos clicks seguidos serían dos altas, y la segunda
         rebotaría por título duplicado con un error que la usuaria no provocó.
       */}
