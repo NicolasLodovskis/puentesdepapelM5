@@ -11,6 +11,7 @@ import {
 } from '@/app/mensajes';
 import { leerLibroPorId } from '@/lib/db/consultas';
 import type { Libro } from '@/lib/db/tipos';
+import { resolverRutaMostrable, tienePortada } from '@/lib/portadas/almacenamiento';
 
 /**
  * Vista de detalle de un libro (FR-01, AC-01) y confirmación de la venta (FR-02, AC-17).
@@ -83,7 +84,11 @@ export default async function PaginaDetalle({ params }: PropsDetalle) {
 
   return (
     <main className="pantalla">
-      <DetalleLibro libro={libro} />
+      <DetalleLibro
+        libro={libro}
+        rutaPortada={resolverRutaMostrable(libro.id)}
+        tienePortada={tienePortada(libro.id)}
+      />
 
       {/*
         `aria-labelledby` y no `aria-label`: con los dos, un lector de pantalla anuncia el mismo

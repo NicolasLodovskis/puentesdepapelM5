@@ -12,3 +12,14 @@ process.env.PUENTES_DB_PATH = path.join(
   `suite-${process.pid}`,
   'puentes-de-prueba.db',
 );
+
+/**
+ * Mismo criterio que `PUENTES_DB_PATH`, para `data/portadas/` (FEAT-001c, Block 1). Sin
+ * esto, un test que guarde una portada sin fijar la variable escribiría en el directorio de
+ * producción del repositorio.
+ */
+process.env.PUENTES_PORTADAS_PATH = path.join(
+  '.tmp-tests',
+  `suite-${process.pid}`,
+  'portadas-de-prueba',
+);

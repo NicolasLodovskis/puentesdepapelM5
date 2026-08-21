@@ -9,7 +9,13 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { ListadoLibros } from '@/app/componentes/listado-libros';
 import { aplicarPragmas } from '@/lib/db/conexion';
 import { buscarLibros } from '@/lib/db/consultas';
+import type { Libro } from '@/lib/db/tipos';
 import { migrar } from '@/lib/db/migrar';
+import {
+  guardarPortadaProcesada,
+  quitarPortada,
+  resolverRutaMostrable,
+} from '@/lib/portadas/almacenamiento';
 import {
   editorialDeterminista,
   sembrarCatalogo,
@@ -43,7 +49,19 @@ const TERMINO = 'puente';
  */
 const DIRECTORIO = path.join(DIRECTORIO_TEMPORAL, `rendimiento-${process.pid}`);
 
+/**
+ * Cada 3er libro sembrado queda con portada (FEAT-001c Block 4, NFR-01): alcanza que
+ * `tienePortada()` —un `fs.existsSync()`— lo vea, no que el contenido sea una imagen real,
+ * porque este bench mide el costo de `resolverRutaMostrable()` dentro de `medir()` (el mismo
+ * cálculo que hace `app/page.tsx`), no la decodificación de la portada.
+ */
+const PASO_CON_PORTADA = 3;
+
 let db: Database.Database;
+
+/** Los ids que quedaron con portada, para el teardown puntual (Regla #0: nada fuera de lo que
+ * este archivo creó). */
+let idsConPortada: number[] = [];
 
 interface Medicion {
   p95: number;
@@ -76,7 +94,14 @@ function medir(termino: string | null): Medicion {
   for (let iteracion = 0; iteracion < ITERACIONES; iteracion += 1) {
     const inicio = performance.now();
     const libros = buscarLibros(termino, db);
-    const html = renderToStaticMarkup(createElement(ListadoLibros, { libros }));
+    // La misma resolución que hace `app/page.tsx` (FEAT-001c Block 4) antes de pasarle el
+    // catálogo a `ListadoLibros`: acá se paga el costo de las 2.000 miniaturas, no sólo el
+    // de la consulta (NFR-01).
+    const librosConPortada = libros.map((libro: Libro) => ({
+      ...libro,
+      rutaPortada: resolverRutaMostrable(libro.id),
+    }));
+    const html = renderToStaticMarkup(createElement(ListadoLibros, { libros: librosConPortada }));
     muestras.push(performance.now() - inicio);
 
     filas = libros.length;
@@ -133,12 +158,32 @@ describe('AC-09: catálogo de 2.000 libros (NFR-01)', () => {
     aplicarPragmas(db);
     migrar(db);
     sembrarCatalogo(db, CANTIDAD);
+
+    // Cada 3er libro sembrado queda con un archivo mínimo en `data/portadas/{id}.jpg` (bajo el
+    // directorio temporal de la corrida, vía `PUENTES_PORTADAS_PATH`): alcanza con que
+    // `tienePortada()` lo vea. Los ids salen de la propia base recién sembrada y no de un rango
+    // adivinado, para no depender de que el `AUTOINCREMENT` empiece siempre en 1.
+    const libros = buscarLibros('', db);
+    idsConPortada = libros
+      .map((libro: Libro) => libro.id)
+      .filter((id: number) => id % PASO_CON_PORTADA === 0);
+
+    for (const id of idsConPortada) {
+      guardarPortadaProcesada(id, Buffer.from('portada-de-prueba'));
+    }
   }, 120_000);
 
   afterAll(() => {
     db?.close();
     // Con `journal_mode = WAL` quedan además los `-wal` y `-shm`: se borra el directorio.
     fs.rmSync(DIRECTORIO, { recursive: true, force: true });
+
+    // Las portadas viven fuera de `DIRECTORIO` (bajo `PUENTES_PORTADAS_PATH`), así que el
+    // `rmSync()` de arriba no las toca: se borran una por una, sin arrasar el directorio
+    // entero, que puede ser compartido con otros archivos de test de la misma corrida.
+    for (const id of idsConPortada) {
+      quitarPortada(id);
+    }
   });
 
   it('mide con los números que fija AC-09 y no con otros', () => {
@@ -175,6 +220,31 @@ describe('AC-09: catálogo de 2.000 libros (NFR-01)', () => {
     const orden = libros.map((libro) => libro.tituloOrden);
     expect(orden).toEqual([...orden].sort());
   });
+
+  it('sembró la mezcla con/sin portada de forma determinista (FEAT-001c Block 4)', () => {
+    // Meta-guardia de la siembra de portadas: sin ids en las dos categorías, la medición de
+    // abajo mediría sólo una rama (todo logo, o todo `fs.readFileSync` real) y no la mezcla que
+    // pide AC-08.
+    expect(idsConPortada.length).toBeGreaterThan(0);
+    expect(idsConPortada.length).toBeLessThan(CANTIDAD);
+
+    for (const id of idsConPortada) {
+      expect(id % PASO_CON_PORTADA).toBe(0);
+    }
+  });
+
+  it('el catálogo completo con la mezcla de portadas sembrada sigue por debajo de 1 s (AC-08)', () => {
+    const medida = medir(null);
+    informar('catálogo completo, con mezcla de portadas', medida);
+
+    expect(medida.filas).toBe(CANTIDAD);
+    expect(medida.muestras).toHaveLength(ITERACIONES);
+
+    // El criterio de AC-08, aplicado al costo nuevo que introduce este bloque: el mismo
+    // presupuesto de AC-09, pero ahora `medir()` resuelve `rutaPortada` para las 2.000 filas
+    // (una fracción con `fs.existsSync` yendo a `true`, el resto a `false`).
+    expect(medida.p95).toBeLessThan(PRESUPUESTO_MS);
+  }, 120_000);
 
   it('devuelve el catálogo completo en menos de 1 s (p95 sobre 100 iteraciones)', () => {
     const medida = medir(null);

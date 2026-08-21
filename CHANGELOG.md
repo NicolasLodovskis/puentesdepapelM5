@@ -28,6 +28,12 @@ Formato basado en [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/).
 - FEAT-001b — Derivación de la identidad de un libro (título normalizado, orden y
   editorial normalizada) unificada en un único módulo de dominio, consumido por el
   alta, la edición y la migración de recálculo.
+- FEAT-001c — Portada opcional de un libro: se agrega en el alta, y se asigna,
+  reemplaza o quita desde el detalle. El estado "tiene foto o no" es puramente del
+  filesystem (`data/portadas/{id}.jpg`), sin columna nueva en `libros`.
+- FEAT-001c — Miniatura de 96px en el listado y en el detalle, servida por
+  `GET /portadas/[id]`, que nunca falla: responde con el logo por defecto ante
+  cualquier id inválido o portada inexistente/ilegible, siempre con status 200.
 
 ### Seguridad
 
@@ -42,6 +48,15 @@ Formato basado en [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/).
 - FEAT-001b — El recálculo de identidad es atómico: detecta toda colisión en memoria
   antes de escribir una sola fila y, ante colisión, revierte entero sin enumerar los
   libros en conflicto.
+- FEAT-001c — `lib/portadas/` no importa `lib/db/` ni `better-sqlite3` por
+  construcción: ninguna operación de portada puede escribir en `historial_precio` ni
+  en `historial_stock`. El nombre de archivo de una portada siempre nace de
+  `identificadorDeLibro()`, nunca de un dato crudo de la request.
+- FEAT-001c — Toda foto subida se valida por tamaño (10 MB) antes de decodificar, y
+  se acepta únicamente por éxito real de decodificación (nunca por extensión ni por
+  `File.type`); se redimensiona a 96px y se guarda sin metadata EXIF. Los mensajes de
+  error nunca exponen el texto nativo de `sharp`/`libvips` ni la ruta absoluta del
+  archivo.
 
 ### Corregido
 

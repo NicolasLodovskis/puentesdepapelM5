@@ -4,6 +4,11 @@ import { revalidatePath } from 'next/cache';
 
 import type { ResultadoCrearLibro } from '@/lib/db/errores';
 import { crearLibro } from '@/lib/db/libros';
+import {
+  type CampoValidado,
+  guardarPortadaProcesada,
+  procesarPortada,
+} from '@/lib/portadas/almacenamiento';
 
 import {
   MENSAJE_ALTA_EXITOSA,
@@ -41,20 +46,37 @@ import {
  * `estadoPrevio` es el estado que `useActionState` arrastra entre envíos, y es `null` hasta el
  * primer envío. No se lee: el resultado de un alta no depende del alta anterior, y confiar en
  * él sería confiar en un valor que también viaja por la red.
+ *
+ * La foto (FEAT-001c Block 2, FR-01) es opcional. Si viene un `File` no vacío, se procesa
+ * **en memoria** (`procesarPortada()`, sin tocar disco todavía) y el resultado se funde en
+ * `crearLibro()` antes de decidir si el libro se crea. Sólo si el alta tiene éxito y la foto
+ * era válida se escribe el archivo, con el id ya asignado — nunca antes.
  */
 export async function altaDeLibro(
   estadoPrevio: ResultadoAlta | null,
   datos: FormData,
 ): Promise<ResultadoAlta> {
+  const archivoFoto = datos.get('foto');
+  let fotoValidada: CampoValidado<Buffer> | undefined;
+
+  if (archivoFoto instanceof File && archivoFoto.size > 0) {
+    const bytesOriginales = Buffer.from(await archivoFoto.arrayBuffer());
+    fotoValidada = await procesarPortada(bytesOriginales);
+  }
+
   let resultado: ResultadoCrearLibro;
 
   try {
-    resultado = crearLibro({
-      titulo: datos.get('titulo'),
-      editorial: datos.get('editorial'),
-      stock: datos.get('stock'),
-      precio: datos.get('precio'),
-    });
+    resultado = crearLibro(
+      {
+        titulo: datos.get('titulo'),
+        editorial: datos.get('editorial'),
+        stock: datos.get('stock'),
+        precio: datos.get('precio'),
+      },
+      undefined,
+      fotoValidada,
+    );
   } catch (error) {
     // Fallo de infraestructura, no una condición de negocio. Se registra —si no, nadie se
     // enteraría— pero **sin el contenido del formulario**: un log con el título y la
@@ -67,6 +89,17 @@ export async function altaDeLibro(
   if (resultado.ok) {
     // Sin esto el libro queda cargado y la pantalla sigue mostrando el catálogo anterior.
     revalidatePath('/');
+
+    if (fotoValidada?.ok === true) {
+      try {
+        guardarPortadaProcesada(resultado.libro.id, fotoValidada.valor);
+      } catch (error) {
+        // Fallo de infraestructura DESPUÉS de que el libro ya se creó (riesgo aceptado A4
+        // del threat model): el alta sigue siendo exitosa igual, y el log no lleva el
+        // buffer de la imagen (mitigación M16).
+        console.error('Falló al guardar la portada procesada de un libro ya creado.', error);
+      }
+    }
 
     return { ok: true, mensaje: MENSAJE_ALTA_EXITOSA };
   }

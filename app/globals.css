@@ -55,3 +55,15 @@ body {
 .catalogo td[data-campo='detalle'] {
   white-space: nowrap;
 }
+
+/*
+ * Miniatura de portada (FEAT-001c Block 4, FR-05/FR-06): recuadro de tamaño uniforme incluso
+ * si el navegador no respeta los atributos `width`/`height` del <img> antes de que la imagen
+ * cargue, para que el alto de fila del listado se mantenga constante.
+ */
+.miniatura-portada {
+  width: 96px;
+  height: 96px;
+  object-fit: contain;
+  background: var(--color-borde);
+}

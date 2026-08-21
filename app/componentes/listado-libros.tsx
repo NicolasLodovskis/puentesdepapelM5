@@ -24,8 +24,18 @@ import { formatearCantidad, formatearPrecio, rutaDelDetalle, TEXTO_VENDER } from
  * interfaz, que es lo que evita 2.000 construcciones por renderizado.
  */
 
+/**
+ * Un libro con su portada ya resuelta (FEAT-001c Block 4, FR-05/FR-06). `rutaPortada` la calcula
+ * `resolverRutaMostrable()` (`lib/portadas/almacenamiento.ts`, Block 1/3), siempre en la página
+ * — este componente no importa nada de `lib/portadas/` ni de `lib/db/` más de lo que ya importa,
+ * mismo criterio que `PropsDetalle` en `detalle-libro.tsx`.
+ */
+interface LibroConPortada extends Libro {
+  rutaPortada: string;
+}
+
 interface PropsListado {
-  libros: Libro[];
+  libros: LibroConPortada[];
 }
 
 export function ListadoLibros({ libros }: PropsListado) {
@@ -41,6 +51,7 @@ export function ListadoLibros({ libros }: PropsListado) {
       </caption>
       <thead>
         <tr>
+          <th scope="col">Portada</th>
           <th scope="col">Título</th>
           <th scope="col">Editorial</th>
           <th scope="col">Stock</th>
@@ -56,7 +67,26 @@ export function ListadoLibros({ libros }: PropsListado) {
               `data-campo` es el punto de anclaje de los tests del listado: contar `<tr>`
               mezclaría el encabezado con los datos, y buscar un título con `toContain` no
               diría nada del orden ni de cuántas filas hay.
+
+              El `src` es siempre `libro.rutaPortada` — nunca un dato derivado del título o de
+              la editorial, que sí cargó la usuaria y sí podría llevar marcado (mitigación 9,
+              cierre de XSS sobre este campo nuevo). `rutaPortada` la calculó la página con
+              `resolverRutaMostrable()`, nunca este componente.
             */}
+            <td data-campo="portada">
+              {/* eslint-disable-next-line @next/next/no-img-element -- portada servida como
+                  bytes de disco (Block 4) o asset estático, no algo que `next/image` optimice
+                  en build; y cero JavaScript de cliente por fila (M11) descarta `next/image`,
+                  que es un componente cliente. */}
+              <img
+                className="miniatura-portada"
+                src={libro.rutaPortada}
+                width={96}
+                height={96}
+                loading="lazy"
+                alt=""
+              />
+            </td>
             <td data-campo="titulo">{libro.titulo}</td>
             <td data-campo="editorial">{libro.editorial}</td>
             <td data-campo="stock">{libro.stock}</td>

@@ -1,5 +1,6 @@
 import { buscarLibros } from '@/lib/db/consultas';
 import type { Libro } from '@/lib/db/tipos';
+import { resolverRutaMostrable } from '@/lib/portadas/almacenamiento';
 
 import { Buscador, PARAMETRO_BUSQUEDA } from './componentes/buscador';
 import { FormularioAlta } from './componentes/formulario-alta';
@@ -63,7 +64,15 @@ export default async function Pagina({ searchParams }: PropsPagina) {
 
       <section aria-label="Catálogo">
         <Buscador termino={termino ?? ''} />
-        <ListadoLibros libros={libros} />
+        <ListadoLibros
+          libros={libros.map((libro) => ({
+            ...libro,
+            // La propia foto si existe, o el logo por defecto si no (FR-06). Única llamada a
+            // `lib/portadas/` en esta página; la rama la decide `resolverRutaMostrable()`
+            // (Block 1/3), nunca esta pantalla (FEAT-001c Block 4: FR-05, FR-06, FR-07).
+            rutaPortada: resolverRutaMostrable(libro.id),
+          }))}
+        />
       </section>
     </main>
   );

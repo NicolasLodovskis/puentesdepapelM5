@@ -3,6 +3,7 @@ import Link from 'next/link';
 import type { Libro } from '@/lib/db/tipos';
 
 import { FormularioEdicion } from './formulario-edicion';
+import { FormularioPortada } from './formulario-portada';
 import { formatearPrecio } from '../mensajes';
 
 /**
@@ -36,12 +37,25 @@ import { formatearPrecio } from '../mensajes';
 
 interface PropsDetalle {
   libro: Libro;
+  /**
+   * La ruta vigente de la portada del libro, ya resuelta por `resolverRutaMostrable()`
+   * (FEAT-001c Block 1/3): la propia foto si existe, o el logo por defecto si no (FR-06). Este
+   * componente no importa nada de `lib/portadas/` ni de `lib/db/` más de lo que ya importa —la
+   * rama la decide la única función compartida, en la página.
+   */
+  rutaPortada: string;
+  /** ¿Tiene el libro una foto vigente? Decide si `FormularioPortada` ofrece "Quitar foto". */
+  tienePortada: boolean;
 }
 
-export function DetalleLibro({ libro }: PropsDetalle) {
+export function DetalleLibro({ libro, rutaPortada, tienePortada }: PropsDetalle) {
   return (
     <article className="detalle">
       <h1>{libro.titulo}</h1>
+
+      {/* eslint-disable-next-line @next/next/no-img-element -- portada servida como bytes de
+          disco (Block 4), no un asset que `next/image` pueda optimizar en build. */}
+      <img src={rutaPortada} width={96} height={96} alt="Portada" />
 
       <dl className="datos-del-libro">
         <dt>Título</dt>
@@ -55,6 +69,7 @@ export function DetalleLibro({ libro }: PropsDetalle) {
       </dl>
 
       <section className="operaciones" aria-label="Operaciones sobre el libro">
+        <FormularioPortada id={libro.id} tienePortada={tienePortada} />
         <FormularioEdicion libro={libro} />
       </section>
 

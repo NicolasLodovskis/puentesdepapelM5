@@ -25,8 +25,13 @@ import type { Libro, Venta } from './tipos';
  * para la usuaria es del Bloque 5. `lib/db/` no se queda con presentación adentro.
  */
 
-/** Los cuatro campos que acepta un alta de libro. */
-export type CampoLibro = 'titulo' | 'editorial' | 'stock' | 'precio';
+/**
+ * Los campos que acepta un alta de libro. `'foto'` se agrega en FEAT-001c Block 2: la
+ * portada se valida y se rechaza igual que cualquier otro campo, aunque no viva en la
+ * tabla `libros` ni en ninguna columna (es puramente el filesystem, ver
+ * `lib/portadas/almacenamiento.ts`).
+ */
+export type CampoLibro = 'titulo' | 'editorial' | 'stock' | 'precio' | 'foto';
 
 /** Por qué se rechazó un campo de texto: `titulo` y `editorial`. */
 export type DetalleTexto = 'vacio' | 'demasiado_largo';
@@ -35,13 +40,20 @@ export type DetalleTexto = 'vacio' | 'demasiado_largo';
 export type DetalleEntero = 'no_entero' | 'fuera_de_rango';
 
 /**
+ * Por qué se rechazó `foto` (FEAT-001c, mitigaciones M13/M18). La forma la fija
+ * `lib/portadas/almacenamiento.ts` (`ErrorPortada`); esta unión es estructuralmente
+ * idéntica para que ese módulo no necesite importar nada de `lib/db/` (FR-04).
+ */
+export type DetalleFoto = 'formato_no_admitido' | 'demasiado_grande';
+
+/**
  * Motivo de rechazo de un campo cualquiera.
  *
  * Para `precio` es exactamente el `MotivoPrecio` que devuelve `parsearPrecio()`, sin
  * traducir ni reagrupar: perder el motivo exacto es lo que hace que la usuaria no sepa si
  * le rechazaron el precio por decimal, por separador de miles o por no ser numérico.
  */
-export type DetalleCampo = DetalleTexto | DetalleEntero | MotivoPrecio;
+export type DetalleCampo = DetalleTexto | DetalleEntero | MotivoPrecio | DetalleFoto;
 
 /** Un campo rechazado, con el motivo. Uno por campo, nunca dos del mismo. */
 export interface ErrorCampo {

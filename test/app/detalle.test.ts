@@ -279,8 +279,10 @@ describe('app/libros/[id]/page.tsx', () => {
     const html = await renderizarDetalle(String(id));
 
     // Los cuatro campos que FR-03 (precio), FR-04 (stock) y FR-05 (título y editorial) permiten
-    // corregir desde acá; FR-06 es la regla que gobierna el cambio de título.
-    expect(operaciones(html).sort()).toEqual(['editorial', 'precio', 'stock', 'titulo']);
+    // corregir desde acá; FR-06 es la regla que gobierna el cambio de título. `portada` se suma
+    // en FEAT-001c Block 3 (FR-02, FR-03): la gestión de la foto es una operación más del
+    // detalle, con el mismo anclaje `data-operacion`.
+    expect(operaciones(html).sort()).toEqual(['editorial', 'portada', 'precio', 'stock', 'titulo']);
 
     // Y no es una lista estática de texto (el `<li>` que este bloque reemplaza): cada marca
     // envuelve un campo editable de verdad, con su valor vigente precargado y un control que
@@ -513,8 +515,18 @@ describe('el precio se formatea en un solo lugar', () => {
     // Dos pantallas que formatean el precio por su cuenta divergen sin que nada se ponga rojo:
     // los tests de cada una fijan su propio literal y los dos siguen verdes con `$ 9.500` acá y
     // `$9500` allá. Ésta es la aserción que ata las dos.
-    const listado = renderToStaticMarkup(createElement(ListadoLibros, { libros: [LIBRO] }));
-    const detalle = renderToStaticMarkup(createElement(DetalleLibro, { libro: LIBRO }));
+    const listado = renderToStaticMarkup(
+      createElement(ListadoLibros, {
+        libros: [{ ...LIBRO, rutaPortada: '/logo-puentes-de-papel-96.jpg' }],
+      }),
+    );
+    const detalle = renderToStaticMarkup(
+      createElement(DetalleLibro, {
+        libro: LIBRO,
+        rutaPortada: '/logo-puentes-de-papel-96.jpg',
+        tienePortada: false,
+      }),
+    );
 
     expect(celdas(listado, 'precio')).toEqual(dato(detalle, 'precio'));
     // Y dice algo: dos vacíos también serían iguales.
@@ -542,6 +554,8 @@ describe('app/componentes/detalle-libro.tsx', () => {
     const html = renderToStaticMarkup(
       createElement(DetalleLibro, {
         libro: { ...LIBRO, titulo: '<script>alert(1)</script>', editorial: '<img onerror="x">' },
+        rutaPortada: '/logo-puentes-de-papel-96.jpg',
+        tienePortada: false,
       }),
     );
 

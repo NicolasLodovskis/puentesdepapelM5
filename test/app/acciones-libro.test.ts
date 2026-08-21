@@ -6,20 +6,30 @@ import type Database from 'better-sqlite3';
 import { notFound, redirect } from 'next/navigation';
 import { createElement } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
+import sharp from 'sharp';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-import { edicionDeLibro, ventaDeLibro } from '@/app/acciones-libro';
+import { asignarFoto, edicionDeLibro, quitarFoto, ventaDeLibro } from '@/app/acciones-libro';
 import PaginaDetalle from '@/app/libros/[id]/page';
 import {
   MENSAJE_ERROR_DE_EDICION,
+  MENSAJE_ERROR_DE_FOTO,
   MENSAJE_ERROR_DE_VENTA,
   MENSAJE_VENTA_SIN_STOCK,
   rutaDelDetalle,
   TEXTO_CONFIRMAR_VENTA,
   TEXTO_GUARDAR_EDICION,
+  TEXTO_QUITAR_FOTO,
   TEXTO_VENDER,
 } from '@/app/mensajes';
 import Pagina from '@/app/page';
+import { buscarLibros } from '@/lib/db/consultas';
+import {
+  guardarPortada,
+  leerPortada,
+  quitarPortada,
+  tienePortada,
+} from '@/lib/portadas/almacenamiento';
 import { baseDePrueba } from '@/test/ayudas/base-de-prueba';
 import {
   type CambiosDeLaSiembra,
@@ -34,12 +44,34 @@ import {
 
 /**
  * Tests de los Server Actions de un libro: la venta (FEAT-001b Block 4: AC-02, AC-03, AC-11,
- * AC-17, M1, M2, M3, M8) y la edición (Block 5: AC-04 a AC-11, AC-14, M1, M3, M8).
+ * AC-17, M1, M2, M3, M8), la edición (Block 5: AC-04 a AC-11, AC-14, M1, M3, M8) y la gestión de
+ * la foto de portada (FEAT-001c Block 3: FR-02, FR-03, FR-04, AC-05, AC-06, AC-07, M3, M16, M19).
  *
  * No hay entorno DOM ni runner e2e: los Server Actions se ejercitan como funciones async y las
  * pantallas se renderizan a texto, igual que en `test/app/acciones.test.ts` y en
  * `test/app/detalle.test.ts`.
  */
+
+/**
+ * Espías de `guardarPortada()`/`quitarPortada()` (FEAT-001c Block 3): envuelven la
+ * implementación real —los tests de escritura efectiva la necesitan de verdad— y permiten forzar,
+ * por test, un fallo de infraestructura (mitigación M16).
+ */
+const guardarPortadaMock = vi.hoisted(() => vi.fn());
+const quitarPortadaMock = vi.hoisted(() => vi.fn());
+
+vi.mock('@/lib/portadas/almacenamiento', async (importarOriginal) => {
+  const original = await importarOriginal<typeof import('@/lib/portadas/almacenamiento')>();
+
+  guardarPortadaMock.mockImplementation(original.guardarPortada);
+  quitarPortadaMock.mockImplementation(original.quitarPortada);
+
+  return {
+    ...original,
+    guardarPortada: guardarPortadaMock,
+    quitarPortada: quitarPortadaMock,
+  };
+});
 
 /** La base `:memory:` del test en curso. `app/` no la recibe por parámetro: se intercepta la conexión. */
 let db: Database.Database | undefined;
@@ -355,7 +387,7 @@ const TEXTOS_DE_LA_INTERFAZ = Object.entries(MODULOS_CARGADOS).flatMap(([ruta, m
     ),
 );
 
-function formulario(campos: Record<string, string>): FormData {
+function formulario(campos: Record<string, string | File>): FormData {
   const datos = new FormData();
 
   for (const [campo, valor] of Object.entries(campos)) {
@@ -363,6 +395,45 @@ function formulario(campos: Record<string, string>): FormData {
   }
 
   return datos;
+}
+
+/**
+ * Un `File` como el que arma el navegador al adjuntar una foto (FEAT-001c Block 3), mismo
+ * helper que `test/app/acciones.test.ts` usa para el alta.
+ */
+function archivo(bytes: Buffer, nombre = 'portada.jpg', tipo = 'image/jpeg'): File {
+  // `new Uint8Array(bytes)` y no `bytes` directo: el `Buffer` de Node tipa su `.buffer` como
+  // `ArrayBufferLike` (admite `SharedArrayBuffer`), que no es un `BlobPart` válido para `File`.
+  return new File([new Uint8Array(bytes)], nombre, { type: tipo });
+}
+
+/** Un JPEG real y chico, para no depender de un fixture en el repositorio. */
+async function imagenValida(): Promise<Buffer> {
+  return sharp({
+    create: { width: 200, height: 150, channels: 3, background: { r: 10, g: 20, b: 30 } },
+  })
+    .jpeg()
+    .toBuffer();
+}
+
+/** Otro JPEG real, con otras dimensiones y color: el reemplazo tiene que dar un contenido distinto. */
+async function otraImagenValida(): Promise<Buffer> {
+  return sharp({
+    create: { width: 100, height: 300, channels: 3, background: { r: 250, g: 250, b: 5 } },
+  })
+    .jpeg()
+    .toBuffer();
+}
+
+/** El primer `<img>` del HTML, o un error si no hay ninguno: falla cerrado. */
+function imgDePortada(html: string): string {
+  const encontrado = /<img\b[^>]*>/u.exec(html);
+
+  if (encontrado === null) {
+    throw new Error('No se encontró ningún <img> en el detalle.');
+  }
+
+  return encontrado[0];
 }
 
 async function renderizarDetalle(id: string): Promise<string> {
@@ -1022,5 +1093,315 @@ describe('el control de venta de la fila del listado (AC-17)', () => {
     expect(fuente).not.toMatch(/acciones-libro/u);
     expect(fuente).not.toMatch(/^\s*['"]use (client|server)['"]/mu);
     expect(fuente).not.toMatch(/from\s+['"]next\/link['"]/u);
+  });
+});
+
+describe('asignarFoto()', () => {
+  beforeEach(async () => {
+    db = baseDePrueba();
+    conexionRota = false;
+    revalidar.mockClear();
+
+    // `afterEach` corre `vi.restoreAllMocks()`, que a un `vi.fn()` sin spy detrás lo deja sin
+    // implementación: se reafirma la real en cada test para que sobreviva al restore del test
+    // anterior (y no sólo al primero de la describe). Mismo criterio que
+    // `test/app/acciones.test.ts` con `guardarPortadaProcesadaMock`.
+    const real = await vi.importActual<typeof import('@/lib/portadas/almacenamiento')>(
+      '@/lib/portadas/almacenamiento',
+    );
+    guardarPortadaMock.mockReset();
+    guardarPortadaMock.mockImplementation(real.guardarPortada);
+    quitarPortadaMock.mockReset();
+    quitarPortadaMock.mockImplementation(real.quitarPortada);
+  });
+
+  afterEach(() => {
+    db?.close();
+    db = undefined;
+    vi.restoreAllMocks();
+  });
+
+  it('con una foto válida sobre un libro sin portada la persiste y redirige (AC-05)', async () => {
+    const { segundo: libro } = sembrarDos();
+    // Estado inicial explícito, sin depender de lo que haya dejado un test anterior sobre el
+    // mismo id (el directorio de portadas de prueba es compartido por todo el proceso).
+    quitarPortada(libro.id);
+    expect(tienePortada(libro.id)).toBe(false);
+
+    const bytes = await imagenValida();
+    const senal = await senalDe(() =>
+      asignarFoto(null, formulario({ id: String(libro.id), foto: archivo(bytes) })),
+    );
+
+    expect(tienePortada(libro.id)).toBe(true);
+    expect(digestDe(senal)).toBe(digestDeRedireccion(rutaDelDetalle(libro.id)));
+  });
+
+  it('sobre un libro que ya tenía portada, con una foto distinta, la reemplaza sin acumular archivos (AC-05)', async () => {
+    const { segundo: libro } = sembrarDos();
+    await guardarPortada(libro.id, await imagenValida());
+    const antes = leerPortada(libro.id);
+    expect(antes).toBeDefined();
+
+    const otrosBytes = await otraImagenValida();
+    await senalDe(() =>
+      asignarFoto(null, formulario({ id: String(libro.id), foto: archivo(otrosBytes) })),
+    );
+
+    const despues = leerPortada(libro.id);
+    expect(despues).toBeDefined();
+    expect(despues).not.toEqual(antes);
+    expect(tienePortada(libro.id)).toBe(true);
+  });
+
+  it('con una foto inválida rechaza el campo, no redirige y la portada previa queda intacta (AC-07)', async () => {
+    const { segundo: libro } = sembrarDos();
+    await guardarPortada(libro.id, await imagenValida());
+    const antes = leerPortada(libro.id);
+
+    const resultado = await asignarFoto(
+      null,
+      formulario({ id: String(libro.id), foto: archivo(Buffer.from('esto no es una imagen')) }),
+    );
+
+    expect(resultado).toEqual({ ok: false, mensajes: { foto: expect.stringMatching(/\S/u) } });
+    expect(revalidar).not.toHaveBeenCalled();
+    // Comparación literal de bytes: AC-07 exige que la portada anterior no cambie.
+    expect(leerPortada(libro.id)).toEqual(antes);
+  });
+
+  it('sin ningún archivo en el campo foto rechaza el campo y no toca la portada previa (asunción documentada)', async () => {
+    // El spec no dice qué hacer si se envía el formulario sin elegir archivo. Se lee como "sin
+    // nada que asignar, se rechaza igual que cualquier otro contenido no decodificable": no hay
+    // un tercer estado de éxito parcial ("no se hizo nada, pero tampoco es un error").
+    const { segundo: libro } = sembrarDos();
+    await guardarPortada(libro.id, await imagenValida());
+    const antes = leerPortada(libro.id);
+
+    const resultado = await asignarFoto(null, formulario({ id: String(libro.id) }));
+
+    expect(resultado).toEqual({ ok: false, mensajes: { foto: expect.stringMatching(/\S/u) } });
+    expect(revalidar).not.toHaveBeenCalled();
+    expect(leerPortada(libro.id)).toEqual(antes);
+  });
+
+  it('con un id inválido responde 404 sin tocar el filesystem', async () => {
+    const bytes = await imagenValida();
+    const invalidos = ['abc', '-1', '0', '9e99', ''];
+
+    for (const invalido of invalidos) {
+      const senal = await senalDe(() =>
+        asignarFoto(null, formulario({ id: invalido, foto: archivo(bytes) })),
+      );
+
+      expect((senal as Error).message, invalido).toBe(RESPUESTA_404);
+    }
+
+    expect(guardarPortadaMock).not.toHaveBeenCalled();
+  });
+
+  it('ante un fallo de infraestructura devuelve el mensaje genérico curado, sin redirigir ni exponer el motor (M16)', async () => {
+    const registro = vi.spyOn(console, 'error').mockImplementation(() => {});
+    const { segundo: libro } = sembrarDos();
+    guardarPortadaMock.mockImplementationOnce(() => {
+      throw new Error(
+        `ENOSPC: no space left on device, write '/data/portadas/${String(libro.id)}.jpg'`,
+      );
+    });
+
+    const resultado = await asignarFoto(
+      null,
+      formulario({ id: String(libro.id), foto: archivo(await imagenValida()) }),
+    );
+
+    expect(resultado).toEqual({ ok: false, mensajes: {}, general: MENSAJE_ERROR_DE_FOTO });
+    // El mensaje que llega a la usuaria no nombra el motor ni la ruta del disco (M16): el texto
+    // nativo de la excepción es del log del servidor, no de la pantalla.
+    expect(resultado.general).not.toContain('ENOSPC');
+    expect(resultado.general).not.toContain('/data/portadas');
+    expect(revalidar).not.toHaveBeenCalled();
+
+    // El fallo se registra —si no, nadie se enteraría— pero sin el buffer de la imagen ni el
+    // `FormData` (M16, mismo criterio que M8 en `ventaDeLibro()`): un `console.error(mensaje,
+    // error, bytes)` sería el contenido de la foto copiado a la consola del servidor.
+    expect(registro).toHaveBeenCalled();
+    for (const argumento of registro.mock.calls.flat()) {
+      expect(argumento).not.toBeInstanceOf(FormData);
+      expect(argumento).not.toBeInstanceOf(Buffer);
+    }
+  });
+});
+
+describe('quitarFoto()', () => {
+  beforeEach(async () => {
+    db = baseDePrueba();
+    conexionRota = false;
+    revalidar.mockClear();
+
+    const real = await vi.importActual<typeof import('@/lib/portadas/almacenamiento')>(
+      '@/lib/portadas/almacenamiento',
+    );
+    guardarPortadaMock.mockReset();
+    guardarPortadaMock.mockImplementation(real.guardarPortada);
+    quitarPortadaMock.mockReset();
+    quitarPortadaMock.mockImplementation(real.quitarPortada);
+  });
+
+  afterEach(() => {
+    db?.close();
+    db = undefined;
+    vi.restoreAllMocks();
+  });
+
+  it('sobre un libro con portada la quita y redirige (AC-06)', async () => {
+    const { segundo: libro } = sembrarDos();
+    await guardarPortada(libro.id, await imagenValida());
+    expect(tienePortada(libro.id)).toBe(true);
+
+    const senal = await senalDe(() => quitarFoto(formulario({ id: String(libro.id) })));
+
+    expect(tienePortada(libro.id)).toBe(false);
+    expect(digestDe(senal)).toBe(digestDeRedireccion(rutaDelDetalle(libro.id)));
+  });
+
+  it('sobre un libro sin portada no lanza y redirige igual (idempotente)', async () => {
+    const { segundo: libro } = sembrarDos();
+    quitarPortada(libro.id);
+    expect(tienePortada(libro.id)).toBe(false);
+
+    const senal = await senalDe(() => quitarFoto(formulario({ id: String(libro.id) })));
+
+    expect(tienePortada(libro.id)).toBe(false);
+    expect(digestDe(senal)).toBe(digestDeRedireccion(rutaDelDetalle(libro.id)));
+  });
+
+  it('con un id inválido responde 404 sin tocar el filesystem', async () => {
+    const invalidos = ['abc', '-1', '0', '9e99', ''];
+
+    for (const invalido of invalidos) {
+      const senal = await senalDe(() => quitarFoto(formulario({ id: invalido })));
+
+      expect((senal as Error).message, invalido).toBe(RESPUESTA_404);
+    }
+
+    expect(quitarPortadaMock).not.toHaveBeenCalled();
+  });
+
+  it('deja sin cambios título, editorial, stock, precio e historiales del libro (AC-06)', async () => {
+    const { segundo: libro } = sembrarDos();
+    await guardarPortada(libro.id, await imagenValida());
+    const antes = contenido();
+
+    // La señal se afirma explícitamente: sin esto, un `quitarFoto` que fallara silenciosamente
+    // (o que ni siquiera existiera) dejaría este test en verde por no haber cambiado nada, en
+    // vez de por haber quitado la foto de verdad.
+    const senal = await senalDe(() => quitarFoto(formulario({ id: String(libro.id) })));
+    expect(digestDe(senal)).toBe(digestDeRedireccion(rutaDelDetalle(libro.id)));
+    expect(tienePortada(libro.id)).toBe(false);
+
+    expect(contenido()).toEqual(antes);
+    const actual = buscarLibros('', db).find((candidato) => candidato.id === libro.id);
+    expect(actual).toMatchObject({
+      titulo: libro.titulo,
+      editorial: libro.editorial,
+      stock: libro.stock,
+      precio: libro.precio,
+    });
+  });
+
+  it('ante un fallo de infraestructura relanza un Error curado, sin el texto nativo de la excepción (M16)', async () => {
+    const registro = vi.spyOn(console, 'error').mockImplementation(() => {});
+    const { segundo: libro } = sembrarDos();
+    quitarPortadaMock.mockImplementationOnce(() => {
+      throw new Error(`EACCES: permission denied, unlink '/data/portadas/${String(libro.id)}.jpg'`);
+    });
+
+    let capturado: unknown;
+    try {
+      await quitarFoto(formulario({ id: String(libro.id) }));
+    } catch (error) {
+      capturado = error;
+    }
+
+    expect(capturado).toBeInstanceOf(Error);
+    expect((capturado as Error).message).toBe(MENSAJE_ERROR_DE_FOTO);
+    // El mensaje que llega a quien llama no nombra el motor ni la ruta del disco (M16).
+    expect((capturado as Error).message).not.toContain('EACCES');
+    expect((capturado as Error).message).not.toContain('/data/portadas');
+
+    // El fallo se registra, pero sin el `FormData` (M16, mismo criterio que M8 en
+    // `ventaDeLibro()`): acá no hay ningún buffer que loguear, sólo el id.
+    expect(registro).toHaveBeenCalled();
+    for (const argumento of registro.mock.calls.flat()) {
+      expect(argumento).not.toBeInstanceOf(FormData);
+    }
+  });
+
+  it('ninguna de las dos acciones inserta una fila en historial_precio ni en historial_stock (FR-04)', async () => {
+    const { segundo: libro } = sembrarDos();
+    const antes = contenido();
+
+    const bytes = await imagenValida();
+    const senalAsignar = await senalDe(() =>
+      asignarFoto(null, formulario({ id: String(libro.id), foto: archivo(bytes) })),
+    );
+    // Las señales se afirman explícitamente: sin esto, un `asignarFoto`/`quitarFoto` que
+    // fallaran silenciosamente dejarían este test en verde por no haber escrito nada, en vez de
+    // por haber operado la foto de verdad sin tocar los historiales.
+    expect(digestDe(senalAsignar)).toBe(digestDeRedireccion(rutaDelDetalle(libro.id)));
+    expect(tienePortada(libro.id)).toBe(true);
+
+    const senalQuitar = await senalDe(() => quitarFoto(formulario({ id: String(libro.id) })));
+    expect(digestDe(senalQuitar)).toBe(digestDeRedireccion(rutaDelDetalle(libro.id)));
+    expect(tienePortada(libro.id)).toBe(false);
+
+    const despues = contenido();
+    expect(despues.historialPrecio).toBe(antes.historialPrecio);
+    expect(despues.historialStock).toBe(antes.historialStock);
+  });
+});
+
+describe('la portada en la vista de detalle (FEAT-001c Block 3: FR-02, FR-03)', () => {
+  beforeEach(() => {
+    db = baseDePrueba();
+    conexionRota = false;
+  });
+
+  afterEach(() => {
+    db?.close();
+    db = undefined;
+    vi.restoreAllMocks();
+  });
+
+  it('DetalleLibro muestra rutaPortada en un <img> con los atributos de tamaño fijos', async () => {
+    const { segundo: libro } = sembrarDos();
+    quitarPortada(libro.id);
+
+    const sinFoto = imgDePortada(await renderizarDetalle(String(libro.id)));
+    expect(sinFoto).toContain('src="/logo-puentes-de-papel-96.jpg"');
+    expect(sinFoto).toContain('width="96"');
+    expect(sinFoto).toContain('height="96"');
+
+    await guardarPortada(libro.id, await imagenValida());
+
+    const conFoto = imgDePortada(await renderizarDetalle(String(libro.id)));
+    expect(conFoto).toContain(`src="/portadas/${String(libro.id)}"`);
+    expect(conFoto).toContain('width="96"');
+    expect(conFoto).toContain('height="96"');
+  });
+
+  it('FormularioPortada no renderiza el botón "Quitar foto" cuando tienePortada es false', async () => {
+    const { segundo: libro } = sembrarDos();
+    quitarPortada(libro.id);
+
+    const sinFoto = await renderizarDetalle(String(libro.id));
+    expect(sinFoto).not.toContain(TEXTO_QUITAR_FOTO);
+    expect(sinFoto).not.toContain('data-portada="quitar"');
+
+    await guardarPortada(libro.id, await imagenValida());
+
+    const conFoto = await renderizarDetalle(String(libro.id));
+    expect(conFoto).toContain(TEXTO_QUITAR_FOTO);
+    expect(conFoto).toContain('data-portada="quitar"');
   });
 });

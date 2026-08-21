@@ -319,6 +319,14 @@ export function esViolacionDeUnique(error: unknown): boolean {
  * y sale la conexión única; los tests le dan una base `:memory:` migrada desde cero, sin
  * tener que interceptar el módulo de conexión.
  *
+ * `fotoValidada` (FEAT-001c Block 2, FR-01) es el resultado ya calculado de
+ * `procesarPortada()` — este módulo no decodifica imágenes ni importa `lib/portadas/`, sólo
+ * funde el resultado en `recolectarErrores()` antes de decidir si escribe: el libro no se
+ * crea si la foto es inválida, igual que si lo fuera cualquier otro campo. `undefined`
+ * cuando el alta no trae foto. Si el alta tiene éxito y había un buffer válido, es quien
+ * llama (`app/acciones.ts`) el que lo retiene desde antes de esta llamada y lo escribe a
+ * disco después, con el id ya asignado — este resultado no lo devuelve.
+ *
  * > **Invariante para features posteriores.** `titulo_normalizado`, `titulo_orden` y
  * > `editorial_normalizada` son columnas **derivadas y almacenadas**. Todo camino que
  * > escriba `titulo` o `editorial` **debe** recalcularlas en la misma sentencia, y **debe**
@@ -333,6 +341,7 @@ export function esViolacionDeUnique(error: unknown): boolean {
 export function crearLibro(
   entrada: EntradaLibro,
   db: Database.Database = obtenerDb(),
+  fotoValidada?: CampoValidado<Buffer>,
 ): ResultadoCrearLibro {
   const alta = db.transaction((): ResultadoCrearLibro => {
     // 1. Validar. Si algo falla, no se toca la base.
@@ -340,12 +349,15 @@ export function crearLibro(
     const editorial = validarTexto(entrada.editorial, 'editorial');
     const stock = validarStock(entrada.stock);
     const precio = validarPrecio(entrada.precio);
+    // Sin foto, se funde un "ok" que no aporta ningún error: `fotoValidada` es `undefined`
+    // cuando el alta no trae ningún archivo (Block 2).
+    const foto: CampoValidado<Buffer> = fotoValidada ?? { ok: true, valor: Buffer.alloc(0) };
 
-    if (!titulo.ok || !editorial.ok || !stock.ok || !precio.ok) {
+    if (!titulo.ok || !editorial.ok || !stock.ok || !precio.ok || !foto.ok) {
       return {
         ok: false,
         motivo: 'campos_invalidos',
-        errores: recolectarErrores(titulo, editorial, stock, precio),
+        errores: recolectarErrores(titulo, editorial, stock, precio, foto),
       };
     }
 

@@ -516,6 +516,66 @@ describe('crearLibro()', () => {
   });
 });
 
+describe('crearLibro() con el campo foto (FEAT-001c Block 2)', () => {
+  let db: Database.Database;
+
+  beforeEach(() => {
+    db = baseDePrueba();
+  });
+
+  afterEach(() => {
+    db.close();
+  });
+
+  it('sigue creando el libro sin pasar el parámetro de foto (regresión de las llamadas existentes)', () => {
+    const resultado = crearLibro(entrada(), db);
+
+    expect(resultado.ok).toBe(true);
+    expect(contenido(db)).toEqual({ libros: 1, historialPrecio: 1, historialStock: 1 });
+  });
+
+  it('rechaza una foto inválida igual que cualquier otro campo, sin persistir nada', () => {
+    const resultado = crearLibro(entrada(), db, {
+      ok: false,
+      error: { campo: 'foto', detalle: 'formato_no_admitido' },
+    });
+
+    expect(resultado).toEqual({
+      ok: false,
+      motivo: 'campos_invalidos',
+      errores: [{ campo: 'foto', detalle: 'formato_no_admitido' }],
+    });
+    expect(contenido(db)).toEqual(BASE_VACIA);
+  });
+
+  it('junta el rechazo de foto con el de otro campo inválido, uno por campo', () => {
+    const resultado = crearLibro(entrada({ titulo: '' }), db, {
+      ok: false,
+      error: { campo: 'foto', detalle: 'demasiado_grande' },
+    });
+
+    expect(resultado).toEqual({
+      ok: false,
+      motivo: 'campos_invalidos',
+      errores: [
+        { campo: 'titulo', detalle: 'vacio' },
+        { campo: 'foto', detalle: 'demasiado_grande' },
+      ],
+    });
+    expect(contenido(db)).toEqual(BASE_VACIA);
+  });
+
+  it('crea el libro igual cuando la foto es válida, sin que el buffer llegue a la base', () => {
+    const resultado = crearLibro(entrada(), db, {
+      ok: true,
+      valor: Buffer.from('contenido-de-prueba'),
+    });
+
+    expect(resultado.ok).toBe(true);
+    expect(contenido(db)).toEqual({ libros: 1, historialPrecio: 1, historialStock: 1 });
+  });
+});
+
 describe('convenciones de lib/db/libros.ts', () => {
   const fuente = fs.readFileSync(path.join(process.cwd(), 'lib/db/libros.ts'), 'utf8');
 
