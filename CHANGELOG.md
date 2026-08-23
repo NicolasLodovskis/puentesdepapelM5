@@ -35,6 +35,20 @@ Formato basado en [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/).
   `GET /portadas/[id]`, que nunca falla: responde con el logo por defecto ante
   cualquier id inválido o portada inexistente/ilegible, siempre con status 200.
 
+### Cambiado
+
+- FEAT-002a — Listado y búsqueda de libros rediseñados con Tailwind CSS v4 y un sistema de
+  diseño propio (tipografía, color, espaciado, foco visible), sobre tres componentes
+  compartidos (`Boton`, `CampoTexto`, `Feedback`) pensados para que el resto del split
+  (FEAT-002b, FEAT-002c) los reutilice. Las celdas "Ver"/"Vender" del listado siguen siendo
+  enlaces sin JavaScript de cliente por fila; ninguna Server Action ni `data-campo` cambió.
+
+### Añadido
+
+- FEAT-002a — Entorno de test de componentes (jsdom + Testing Library) aislado por archivo
+  del entorno `node` que ya usan los tests de Server Actions, para cubrir con tests
+  automatizados los componentes de UI interactivos que este split va a seguir agregando.
+
 ### Seguridad
 
 - FEAT-001a — El servidor escucha únicamente en `127.0.0.1` y no se relaja la validación

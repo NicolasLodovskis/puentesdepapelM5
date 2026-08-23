@@ -1,6 +1,7 @@
 import type { Libro } from '@/lib/db/tipos';
 
 import { formatearCantidad, formatearPrecio, rutaDelDetalle, TEXTO_VENDER } from '../mensajes';
+import { Boton } from './ui/boton';
 
 /**
  * El catálogo, como tabla.
@@ -45,92 +46,112 @@ export function ListadoLibros({ libros }: PropsListado) {
   }
 
   return (
-    <table className="catalogo">
-      <caption>
-        {libros.length === 1 ? '1 libro' : `${formatearCantidad(libros.length)} libros`}
-      </caption>
-      <thead>
-        <tr>
-          <th scope="col">Portada</th>
-          <th scope="col">Título</th>
-          <th scope="col">Editorial</th>
-          <th scope="col">Stock</th>
-          <th scope="col">Precio</th>
-          <th scope="col">Detalle</th>
-          <th scope="col">Venta</th>
-        </tr>
-      </thead>
-      <tbody>
-        {libros.map((libro) => (
-          <tr key={libro.id}>
-            {/*
-              `data-campo` es el punto de anclaje de los tests del listado: contar `<tr>`
-              mezclaría el encabezado con los datos, y buscar un título con `toContain` no
-              diría nada del orden ni de cuántas filas hay.
-
-              El `src` es siempre `libro.rutaPortada` — nunca un dato derivado del título o de
-              la editorial, que sí cargó la usuaria y sí podría llevar marcado (mitigación 9,
-              cierre de XSS sobre este campo nuevo). `rutaPortada` la calculó la página con
-              `resolverRutaMostrable()`, nunca este componente.
-            */}
-            <td data-campo="portada">
-              {/* eslint-disable-next-line @next/next/no-img-element -- portada servida como
-                  bytes de disco (Block 4) o asset estático, no algo que `next/image` optimice
-                  en build; y cero JavaScript de cliente por fila (M11) descarta `next/image`,
-                  que es un componente cliente. */}
-              <img
-                className="miniatura-portada"
-                src={libro.rutaPortada}
-                width={96}
-                height={96}
-                loading="lazy"
-                alt=""
-              />
-            </td>
-            <td data-campo="titulo">{libro.titulo}</td>
-            <td data-campo="editorial">{libro.editorial}</td>
-            <td data-campo="stock">{libro.stock}</td>
-            <td data-campo="precio">{formatearPrecio(libro.precio)}</td>
-            {/*
-              El enlace va en **su propia celda** y no envolviendo el título: envolverlo obligaría
-              a aflojar el extractor `celdas()` de los tests hasta admitir markup, y con él
-              pasaría un valor renderizado sin escapar donde hoy devuelve `''`. FR-01 pide que el
-              detalle sea alcanzable desde la fila, no que el título sea el enlace — y AC-17
-              necesita igual un control de venta distinguible del de ver.
-
-              Es un `<a>` pelado y no un control con estado ni un `<Link>`: dos mil filas con
-              estado propio —o con el prefetch de `next/link`, que es un componente cliente— son
-              dos mil componentes cliente, y el bench mide el armado del HTML en Node, así que no
-              vería la regresión (M11). En las pantallas donde el enlace es **uno** —el "volver al
-              catálogo" del detalle y del 404— sí se usa `<Link>`, que es además lo que exige la
-              regla `@next/next/no-html-link-for-pages` para las rutas estáticas.
-            */}
-            <td data-campo="detalle">
-              <a href={rutaDelDetalle(libro.id)}>Ver</a>
-            </td>
-            {/*
-              El control de venta de la fila **no vende**: lleva al detalle, donde la venta queda
-              pendiente de confirmación (AC-17). Un click de más acá no descuenta stock ni registra
-              una venta que después no se puede deshacer (riesgo aceptado A3).
-
-              Es un `<a>` y no un `<button>` que invoque el Server Action —eso sería la venta a un
-              click, exactamente lo que AC-17 prohíbe— y tampoco un `<form method="get">`, que
-              navega igual pero pierde lo que un enlace da gratis: click del medio, abrir en pestaña
-              nueva, copiar la dirección, y que un lector de pantalla anuncie un enlace en vez de un
-              botón que no envía nada.
-
-              **Comparte destino con el enlace de al lado, y está bien que lo comparta**: los dos
-              llevan al detalle porque ahí es donde se confirma la venta. Lo que AC-17 pide es que
-              el control sea distinguible del de ver, y lo son por su celda y por su texto —"Ver" y
-              "Vender"—, no por su URL. Sigue sin haber un byte de JavaScript de cliente por fila
-              (M11): son dos anclas, no dos componentes.
-            */}
-            <td data-campo="venta">
-              <a href={rutaDelDetalle(libro.id)}>{TEXTO_VENDER}</a>
-            </td>
+    // El `overflow-x-auto` es el único wrapper que agrega Block 4: a anchos menores a 360px
+    // (AC-02) la tabla scrollea horizontalmente adentro de este `<div>` en vez de romper el
+    // layout de la página — ninguna columna se quita.
+    <div className="overflow-x-auto">
+      <table className="catalogo w-full text-left text-texto">
+        <caption className="mb-2 text-sm text-texto/70">
+          {libros.length === 1 ? '1 libro' : `${formatearCantidad(libros.length)} libros`}
+        </caption>
+        <thead>
+          <tr>
+            <th scope="col">Portada</th>
+            <th scope="col">Título</th>
+            <th scope="col">Editorial</th>
+            <th scope="col">Stock</th>
+            <th scope="col">Precio</th>
+            <th scope="col">Detalle</th>
+            <th scope="col">Venta</th>
           </tr>
-        ))}
-      </tbody>
-    </table>
+        </thead>
+        <tbody>
+          {libros.map((libro) => (
+            <tr key={libro.id} className="border-b border-borde">
+              {/*
+                `data-campo` es el punto de anclaje de los tests del listado: contar `<tr>`
+                mezclaría el encabezado con los datos, y buscar un título con `toContain` no
+                diría nada del orden ni de cuántas filas hay.
+
+                El `src` es siempre `libro.rutaPortada` — nunca un dato derivado del título o de
+                la editorial, que sí cargó la usuaria y sí podría llevar marcado (mitigación 9,
+                cierre de XSS sobre este campo nuevo). `rutaPortada` la calculó la página con
+                `resolverRutaMostrable()`, nunca este componente.
+              */}
+              <td data-campo="portada" className="py-2">
+                {/* eslint-disable-next-line @next/next/no-img-element -- portada servida como
+                    bytes de disco (Block 4) o asset estático, no algo que `next/image` optimice
+                    en build; y cero JavaScript de cliente por fila (M11) descarta `next/image`,
+                    que es un componente cliente. */}
+                <img
+                  className="miniatura-portada rounded"
+                  src={libro.rutaPortada}
+                  width={96}
+                  height={96}
+                  loading="lazy"
+                  alt=""
+                />
+              </td>
+              <td data-campo="titulo" className="py-2">
+                {libro.titulo}
+              </td>
+              <td data-campo="editorial" className="py-2">
+                {libro.editorial}
+              </td>
+              <td data-campo="stock" className="py-2">
+                {libro.stock}
+              </td>
+              <td data-campo="precio" className="py-2">
+                {formatearPrecio(libro.precio)}
+              </td>
+              {/*
+                El enlace va en **su propia celda** y no envolviendo el título: envolverlo obligaría
+                a aflojar el extractor `celdas()` de los tests hasta admitir markup, y con él
+                pasaría un valor renderizado sin escapar donde hoy devuelve `''`. FR-01 pide que el
+                detalle sea alcanzable desde la fila, no que el título sea el enlace — y AC-17
+                necesita igual un control de venta distinguible del de ver.
+
+                Es `<Boton as="a" href>` (Block 4, ADR-001) y no un control con estado ni un
+                `<Link>`: dos mil filas con estado propio —o con el prefetch de `next/link`, que
+                es un componente cliente— son dos mil componentes cliente, y el bench mide el
+                armado del HTML en Node, así que no vería la regresión (M11). `Boton` es un Server
+                Component sin manejadores de evento, así que sigue siendo el mismo `<a href>`
+                pelado que había, sólo que con las clases compartidas. En las pantallas donde el
+                enlace es **uno** —el "volver al catálogo" del detalle y del 404— sí se usa
+                `<Link>`, que es además lo que exige la regla `@next/next/no-html-link-for-pages`
+                para las rutas estáticas.
+              */}
+              <td data-campo="detalle" className="py-2">
+                <Boton as="a" href={rutaDelDetalle(libro.id)}>
+                  Ver
+                </Boton>
+              </td>
+              {/*
+                El control de venta de la fila **no vende**: lleva al detalle, donde la venta queda
+                pendiente de confirmación (AC-17). Un click de más acá no descuenta stock ni registra
+                una venta que después no se puede deshacer (riesgo aceptado A3).
+
+                Es `<Boton as="a" href>` y no un `<button>` que invoque el Server Action —eso sería
+                la venta a un click, exactamente lo que AC-17 prohíbe— y tampoco un
+                `<form method="get">`, que navega igual pero pierde lo que un enlace da gratis:
+                click del medio, abrir en pestaña nueva, copiar la dirección, y que un lector de
+                pantalla anuncie un enlace en vez de un botón que no envía nada.
+
+                **Comparte destino con el enlace de al lado, y está bien que lo comparta**: los dos
+                llevan al detalle porque ahí es donde se confirma la venta. Lo que AC-17 pide es que
+                el control sea distinguible del de ver, y lo son por su celda y por su texto —"Ver" y
+                "Vender"—, no por su URL. Sigue sin haber un byte de JavaScript de cliente por fila
+                (M11): son dos anclas por `Boton`, no dos componentes de cliente.
+              */}
+              <td data-campo="venta" className="py-2">
+                <Boton as="a" href={rutaDelDetalle(libro.id)}>
+                  {TEXTO_VENDER}
+                </Boton>
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
   );
 }

@@ -472,7 +472,7 @@ function celdasConMarcado(html: string, campo: string): string[] {
  */
 function filaConTitulo(html: string, titulo: string): string {
   const filas = Array.from(
-    html.matchAll(/<tr>([\s\S]*?)<\/tr>/gu),
+    html.matchAll(/<tr[^>]*>([\s\S]*?)<\/tr>/gu),
     (coincidencia) => coincidencia[1],
   );
   const encontradas = filas.filter((fila) => fila.includes(`>${titulo}<`));

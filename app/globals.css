@@ -1,7 +1,29 @@
-:root {
-  --color-fondo: #fdfcf9;
+@import "tailwindcss";
+
+/*
+ * Tokens de diseño (FEAT-002a Block 1, FR-03/AC-01/NFR-01). Paleta neutra (grises cálidos) más
+ * un acento para el foco, con el contraste verificado a mano al fijar los valores (no en tiempo
+ * de ejecución, según la spec):
+ *
+ *   --color-texto sobre --color-fondo: 16.54:1 (excede AA 4.5:1 para texto normal).
+ *   --color-foco  sobre --color-fondo:  6.53:1 (excede el mínimo de 3:1 para un indicador de
+ *   foco no textual — WCAG 1.4.11).
+ *
+ * --color-borde es puramente decorativo (separadores, fondo de miniatura sin cargar) y no
+ * lleva texto encima, así que no está sujeto al umbral de contraste de texto.
+ *
+ * Declarados en `@theme` (no en `:root`) porque Tailwind v4 los expone como variable de tema
+ * (`bg-fondo`, `text-texto`, etc.) además de como custom property de CSS — el `var(--color-…)`
+ * que ya usa `.miniatura-portada` más abajo sigue funcionando igual.
+ */
+@theme {
   --color-texto: #1f1c18;
+  --color-fondo: #fdfcf9;
   --color-borde: #d8d2c6;
+  --color-foco: #1d4ed8;
+
+  --font-sans:
+    system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
 }
 
 * {
@@ -17,12 +39,7 @@ body {
 body {
   background: var(--color-fondo);
   color: var(--color-texto);
-  font-family:
-    system-ui,
-    -apple-system,
-    'Segoe UI',
-    Roboto,
-    sans-serif;
+  font-family: var(--font-sans);
   line-height: 1.5;
 }
 

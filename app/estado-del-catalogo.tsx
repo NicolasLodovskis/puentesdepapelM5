@@ -36,8 +36,8 @@ import { MENSAJE_COLISION_DE_IDENTIDAD, TITULO_CATALOGO_SIN_MIGRAR } from './men
  */
 export function EstadoDelCatalogo() {
   return (
-    <main className="pantalla">
-      <h1>{TITULO_CATALOGO_SIN_MIGRAR}</h1>
+    <main className="pantalla mx-auto max-w-2xl space-y-4 px-4 py-8 text-texto">
+      <h1 className="text-2xl font-semibold">{TITULO_CATALOGO_SIN_MIGRAR}</h1>
       <p>{MENSAJE_COLISION_DE_IDENTIDAD}</p>
     </main>
   );
