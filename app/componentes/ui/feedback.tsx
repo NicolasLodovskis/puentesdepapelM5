@@ -6,9 +6,9 @@ interface PropsFeedback {
 }
 
 /**
- * Client Component controlado enteramente por props (ADR-001): no llama `useFormStatus()` ni
- * `useActionState()` acá adentro — eso lo decide quien lo use (FEAT-002b/FEAT-002c), sin
- * imponerle a ese sub-ticket una estructura de formulario particular.
+ * Client Component controlado enteramente por props (ADR-001): no llama a los hooks
+ * `useActionState`/`useFormStatus` de React acá adentro — eso lo decide quien lo use
+ * (FEAT-002b/FEAT-002c), sin imponerle a ese sub-ticket una estructura de formulario particular.
  *
  * `mensaje` es siempre texto curado por quien llama a este componente, nunca el error crudo de
  * infraestructura (mitigación 3 del threat model FEAT-002a), y se renderiza como children de

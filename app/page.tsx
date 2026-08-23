@@ -57,12 +57,12 @@ export default async function Pagina({ searchParams }: PropsPagina) {
   }
 
   return (
-    <main className="pantalla">
-      <h1>Puentes de Papel</h1>
+    <main className="pantalla mx-auto max-w-4xl space-y-8 px-4 py-8 text-texto">
+      <h1 className="text-2xl font-semibold">Puentes de Papel</h1>
 
       <FormularioAlta />
 
-      <section aria-label="Catálogo">
+      <section aria-label="Catálogo" className="space-y-4">
         <Buscador termino={termino ?? ''} />
         <ListadoLibros
           libros={libros.map((libro) => ({

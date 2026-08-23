@@ -75,16 +75,23 @@ describe('el barrido de mutaciones es un contrato y no un comentario', () => {
     expect(new Set(citas()).size).toBeGreaterThan(20);
   });
 
-  it('cada test que cita existe en la suite recolectada', () => {
-    // Sin esto, borrar o renombrar un test citado deja el barrido afirmando que una mutación se
-    // caza cuando ya no la caza nadie. Con esto, el rojo aparece del lado correcto: el que renombra
-    // el test se entera de que hay un contrato que lo nombra.
-    const recolectados = new Set(testsRecolectados());
+  it(
+    'cada test que cita existe en la suite recolectada',
+    () => {
+      // Sin esto, borrar o renombrar un test citado deja el barrido afirmando que una mutación se
+      // caza cuando ya no la caza nadie. Con esto, el rojo aparece del lado correcto: el que
+      // renombra el test se entera de que hay un contrato que lo nombra.
+      const recolectados = new Set(testsRecolectados());
 
-    expect(recolectados.size).toBeGreaterThan(100);
-    expect(
-      citas().filter((cita) => !recolectados.has(cita)),
-      `${BARRIDO} cita tests que la suite no recolecta`,
-    ).toEqual([]);
-  });
+      expect(recolectados.size).toBeGreaterThan(100);
+      expect(
+        citas().filter((cita) => !recolectados.has(cita)),
+        `${BARRIDO} cita tests que la suite no recolecta`,
+      ).toEqual([]);
+    },
+    // El subproceso `vitest list --json` que arma testsRecolectados() tarda ~4.4s en soledad y
+    // supera el default de 5000ms bajo carga (no es este test el lento: es el runner recolectando
+    // toda la suite en otro proceso). Margen amplio a propósito, no un ajuste fino.
+    20000,
+  );
 });
