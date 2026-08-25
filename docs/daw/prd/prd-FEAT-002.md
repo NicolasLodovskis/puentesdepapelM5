@@ -10,8 +10,8 @@
 
 | Sub-ticket | Title | PRD | Dependencies | Status |
 |---|---|---|---|---|
-| FEAT-002a | Base (sistema de diseño y test DOM) y listado/búsqueda | prd-FEAT-002a.md | ninguna | done (PR #4, se mergea cuando se apruebe) |
-| FEAT-002b | Detalle de libro | prd-FEAT-002b.md | depende de a | active |
+| FEAT-002a | Base (sistema de diseño y test DOM) y listado/búsqueda | prd-FEAT-002a.md | ninguna | active |
+| FEAT-002b | Detalle de libro | prd-FEAT-002b.md | depende de a | pending |
 | FEAT-002c | Formularios (alta, edición, portada) | prd-FEAT-002c.md | depende de a, independiente de b | pending |
 
 ## Suggested implementation order
