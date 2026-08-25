@@ -5,6 +5,10 @@ import { useActionState } from 'react';
 import { altaDeLibro } from '../acciones';
 import type { MensajesPorCampo, ResultadoAlta } from '../mensajes';
 
+import { Boton } from './ui/boton';
+import { CampoTexto } from './ui/campo-texto';
+import { Feedback } from './ui/feedback';
+
 /**
  * Formulario de alta manual de un libro (FR-01).
  *
@@ -62,24 +66,44 @@ export function CamposDeAlta({ estado, enviarAlta, enviando }: PropsCampos) {
 
   return (
     <form action={enviarAlta} className="alta">
-      <h2>Cargar un libro</h2>
+      <h2 className="text-lg font-semibold text-texto">Cargar un libro</h2>
 
-      {/* `aria-live` para que el lector de pantalla anuncie el resultado del envío. */}
-      <p className={estado?.ok === true ? 'aviso exito' : 'aviso error'} aria-live="polite">
-        {aviso}
-      </p>
+      <Feedback
+        estado={
+          enviando
+            ? 'cargando'
+            : estado?.ok === true
+              ? 'exito'
+              : estado?.ok === false
+                ? 'error'
+                : 'inactivo'
+        }
+        mensaje={aviso}
+      />
 
-      <label htmlFor="titulo">Título</label>
-      <input id="titulo" name="titulo" type="text" required maxLength={LARGO_MAXIMO_TEXTO} />
+      <CampoTexto
+        id="titulo"
+        label="Título"
+        name="titulo"
+        type="text"
+        required
+        maxLength={LARGO_MAXIMO_TEXTO}
+      />
       <p className="error-de-campo">{mensajes.titulo}</p>
 
-      <label htmlFor="editorial">Editorial</label>
-      <input id="editorial" name="editorial" type="text" required maxLength={LARGO_MAXIMO_TEXTO} />
+      <CampoTexto
+        id="editorial"
+        label="Editorial"
+        name="editorial"
+        type="text"
+        required
+        maxLength={LARGO_MAXIMO_TEXTO}
+      />
       <p className="error-de-campo">{mensajes.editorial}</p>
 
-      <label htmlFor="stock">Stock</label>
-      <input
+      <CampoTexto
         id="stock"
+        label="Stock"
         name="stock"
         type="number"
         required
@@ -89,13 +113,19 @@ export function CamposDeAlta({ estado, enviarAlta, enviando }: PropsCampos) {
       />
       <p className="error-de-campo">{mensajes.stock}</p>
 
-      <label htmlFor="precio">Precio</label>
       {/*
         `text` y no `number`: el precio se escribe como en la vida real —`1234`, `1234,00`—
         y un campo numérico del navegador rechazaría la coma antes de que el servidor pueda
         explicar el motivo del rechazo, que es justo lo que AC-05 pide informar.
       */}
-      <input id="precio" name="precio" type="text" inputMode="decimal" required />
+      <CampoTexto
+        id="precio"
+        label="Precio"
+        name="precio"
+        type="text"
+        inputMode="decimal"
+        required
+      />
       <p className="error-de-campo">{mensajes.precio}</p>
 
       {/*
@@ -103,17 +133,16 @@ export function CamposDeAlta({ estado, enviarAlta, enviando }: PropsCampos) {
         type="file">`, el navegador envía el formulario como `multipart/form-data`
         automáticamente, sin que haga falta fijar `encType` a mano.
       */}
-      <label htmlFor="foto">Foto de portada</label>
-      <input id="foto" name="foto" type="file" accept="image/*" />
+      <CampoTexto id="foto" label="Foto de portada" name="foto" type="file" accept="image/*" />
       <p className="error-de-campo">{mensajes.foto}</p>
 
       {/*
         Bloqueado mientras el alta viaja: dos clicks seguidos serían dos altas, y la segunda
         rebotaría por título duplicado con un error que la usuaria no provocó.
       */}
-      <button type="submit" disabled={enviando}>
+      <Boton type="submit" disabled={enviando}>
         {enviando ? 'Guardando…' : 'Dar de alta'}
-      </button>
+      </Boton>
     </form>
   );
 }

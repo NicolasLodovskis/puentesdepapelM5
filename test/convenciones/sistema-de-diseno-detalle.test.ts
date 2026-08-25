@@ -22,7 +22,12 @@ import { describe, expect, it } from 'vitest';
 const RAIZ = process.cwd();
 
 /** Los tokens del sistema de diseño (FEAT-002a) que cualquier superficie del detalle puede usar. */
-const TOKENES_COMPARTIDOS = ['text-texto', 'bg-fondo', 'border-borde', 'focus-visible:outline-foco'];
+const TOKENES_COMPARTIDOS = [
+  'text-texto',
+  'bg-fondo',
+  'border-borde',
+  'focus-visible:outline-foco',
+];
 
 /** Lee el fuente crudo de un archivo del proyecto, relativo a la raíz. */
 function fuenteDe(relativo: string): string {
@@ -62,6 +67,12 @@ describe('sistema de diseño del detalle: tokens compartidos (FEAT-002b, AC-01)'
 
   it('app/componentes/formulario-portada.tsx usa al menos un token compartido (Block 5)', () => {
     const fuente = fuenteDe(path.join('app', 'componentes', 'formulario-portada.tsx'));
+
+    expect(usaAlgunTokenCompartido(fuente)).toBe(true);
+  });
+
+  it('app/componentes/formulario-alta.tsx usa al menos un token compartido (FEAT-002c, Block 2)', () => {
+    const fuente = fuenteDe(path.join('app', 'componentes', 'formulario-alta.tsx'));
 
     expect(usaAlgunTokenCompartido(fuente)).toBe(true);
   });
