@@ -50,31 +50,59 @@ interface PropsDetalle {
 
 export function DetalleLibro({ libro, rutaPortada, tienePortada }: PropsDetalle) {
   return (
-    <article className="detalle">
-      <h1>{libro.titulo}</h1>
+    <article className="detalle mx-auto w-full max-w-2xl border border-borde bg-fondo p-4 text-texto sm:p-6">
+      <h1 className="text-xl font-semibold text-texto sm:text-2xl">{libro.titulo}</h1>
 
-      {/* eslint-disable-next-line @next/next/no-img-element -- portada servida como bytes de
-          disco (Block 4), no un asset que `next/image` pueda optimizar en build. */}
-      <img src={rutaPortada} width={96} height={96} alt="Portada" />
+      {/*
+        `flex-col` hasta el punto de quiebre y `sm:flex-row` después: a 360px de ancho (AC-02) la
+        portada y los datos se apilan en vez de comprimirse uno al lado del otro sin espacio.
+      */}
+      <div className="mt-4 flex flex-col gap-4 sm:flex-row sm:items-start">
+        {/* eslint-disable-next-line @next/next/no-img-element -- portada servida como bytes de
+            disco (Block 4), no un asset que `next/image` pueda optimizar en build. */}
+        <img
+          className="miniatura-portada rounded shrink-0"
+          src={rutaPortada}
+          width={96}
+          height={96}
+          alt="Portada"
+        />
 
-      <dl className="datos-del-libro">
-        <dt>Título</dt>
-        <dd data-campo="titulo">{libro.titulo}</dd>
-        <dt>Editorial</dt>
-        <dd data-campo="editorial">{libro.editorial}</dd>
-        <dt>Stock</dt>
-        <dd data-campo="stock">{libro.stock}</dd>
-        <dt>Precio</dt>
-        <dd data-campo="precio">{formatearPrecio(libro.precio)}</dd>
-      </dl>
+        <dl className="datos-del-libro min-w-0 flex-1 text-texto">
+          <dt className="text-texto">Título</dt>
+          <dd data-campo="titulo" className="text-texto">
+            {libro.titulo}
+          </dd>
+          <dt className="text-texto">Editorial</dt>
+          <dd data-campo="editorial" className="text-texto">
+            {libro.editorial}
+          </dd>
+          <dt className="text-texto">Stock</dt>
+          <dd data-campo="stock" className="text-texto">
+            {libro.stock}
+          </dd>
+          <dt className="text-texto">Precio</dt>
+          <dd data-campo="precio" className="text-texto">
+            {formatearPrecio(libro.precio)}
+          </dd>
+        </dl>
+      </div>
 
-      <section className="operaciones" aria-label="Operaciones sobre el libro">
+      <section
+        className="operaciones mt-6 flex flex-col gap-6 border-t border-borde pt-6"
+        aria-label="Operaciones sobre el libro"
+      >
         <FormularioPortada id={libro.id} tienePortada={tienePortada} />
         <FormularioEdicion libro={libro} />
       </section>
 
-      <p>
-        <Link href="/">Volver al catálogo</Link>
+      <p className="mt-6">
+        <Link
+          href="/"
+          className="text-texto underline focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-foco"
+        >
+          Volver al catálogo
+        </Link>
       </p>
     </article>
   );

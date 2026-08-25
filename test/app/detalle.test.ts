@@ -610,6 +610,29 @@ describe('app/componentes/detalle-libro.tsx', () => {
     expect(html).not.toContain('<img onerror=');
     expect(html).toContain('&lt;script&gt;alert(1)&lt;/script&gt;');
   });
+
+  it(
+    'conserva los cuatro data-campo con su mismo contenido tras el cambio de clases del ' +
+      'sistema de diseño (FEAT-002b Block 3, regresión de marcado, no de diseño visual)',
+    () => {
+      const html = renderToStaticMarkup(
+        createElement(DetalleLibro, {
+          libro: LIBRO,
+          rutaPortada: '/logo-puentes-de-papel-96.jpg',
+          tienePortada: false,
+        }),
+      );
+
+      // El mismo anclaje que usa el resto del archivo (`dato()`), y el mismo contenido que ya
+      // afirmaba el primer test de este describe antes de que este bloque tocara las clases: si
+      // el cambio de marcado envolviera un `<dd>` en un `<span>` para poder pintarlo, esta misma
+      // aserción se pondría roja porque `dato()` no admite etiquetas anidadas dentro del `<dd>`.
+      expect(dato(html, 'titulo')).toEqual(['Rayuela']);
+      expect(dato(html, 'editorial')).toEqual(['Sudamericana']);
+      expect(dato(html, 'stock')).toEqual(['4']);
+      expect(dato(html, 'precio')).toEqual(['$ 9.500']);
+    },
+  );
 });
 
 describe('cableado de la pantalla del catálogo sin migrar (AC-16)', () => {
