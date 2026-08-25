@@ -424,6 +424,26 @@ describe('app/libros/[id]/page.tsx', () => {
       );
     },
   );
+
+  it(
+    'el formulario de portada conserva data-portada="cambiar" tras el cambio a Feedback/BotonEnvio ' +
+      '(FEAT-002b Block 5, regresión)',
+    async () => {
+      const id = sembrar(baseAbierta(), {
+        titulo: 'Rayuela',
+        identidad: 'rayuela',
+        editorial: 'Sudamericana',
+      });
+
+      const html = await renderizarDetalle(String(id));
+
+      expect(html).toContain('data-portada="cambiar"');
+      // Sin foto asignada, `tienePortada` es false: "quitar" no se ofrece. Su condicionalidad
+      // (data-portada="quitar" sólo con tienePortada=true) ya la vigilan las líneas 1399/1405 de
+      // `test/app/acciones-libro.test.ts`, sin duplicarla acá.
+      expect(html).not.toContain('data-portada="quitar"');
+    },
+  );
 });
 
 describe('la fila del listado lleva al detalle (FR-01)', () => {
