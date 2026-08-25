@@ -405,6 +405,25 @@ describe('app/libros/[id]/page.tsx', () => {
       expect(formulario).toMatch(/focus-visible:outline-foco/u);
     },
   );
+
+  it(
+    'el formulario de edición conserva data-edicion="guardar" y sus data-operacion tras el ' +
+      'cambio a Feedback (FEAT-002b Block 4, regresión)',
+    async () => {
+      const id = sembrar(baseAbierta(), {
+        titulo: 'Rayuela',
+        identidad: 'rayuela',
+        editorial: 'Sudamericana',
+      });
+
+      const html = await renderizarDetalle(String(id));
+
+      expect(html).toContain('data-edicion="guardar"');
+      expect(operaciones(html)).toEqual(
+        expect.arrayContaining(['titulo', 'editorial', 'stock', 'precio']),
+      );
+    },
+  );
 });
 
 describe('la fila del listado lleva al detalle (FR-01)', () => {

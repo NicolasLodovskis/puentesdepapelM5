@@ -53,4 +53,10 @@ describe('sistema de diseño del detalle: tokens compartidos (FEAT-002b, AC-01)'
 
     expect(usaAlgunTokenCompartido(fuente)).toBe(true);
   });
+
+  it('app/componentes/formulario-edicion.tsx usa al menos un token compartido (Block 4)', () => {
+    const fuente = fuenteDe(path.join('app', 'componentes', 'formulario-edicion.tsx'));
+
+    expect(usaAlgunTokenCompartido(fuente)).toBe(true);
+  });
 });
