@@ -208,6 +208,30 @@ function operaciones(html: string): string[] {
 }
 
 /**
+ * El formulario de la sección de venta del detalle, con su marcado adentro.
+ *
+ * Mismo criterio y mismo riesgo que `formularioDeVenta()` en `test/app/acciones-libro.test.ts`
+ * (no se importa desde ahí porque ese archivo no exporta nada: es una guardia hermana, no una
+ * dependencia): se elige por el marcador del control de confirmación —`data-venta="confirmar"`—
+ * y no por ser el primer `<form>` del HTML, porque el formulario de edición vive en la misma
+ * pantalla. Falla cerrado si no encuentra exactamente uno.
+ */
+function formularioDeVenta(html: string): string {
+  const encontrados = Array.from(
+    html.matchAll(/<form[\s\S]*?<\/form>/gu),
+    (coincidencia) => coincidencia[0],
+  ).filter((formulario) => formulario.includes('data-venta="confirmar"'));
+
+  if (encontrados.length !== 1) {
+    throw new Error(
+      `Se esperaba un solo formulario de venta en el detalle y se encontraron ${String(encontrados.length)}.`,
+    );
+  }
+
+  return encontrados[0];
+}
+
+/**
  * Los destinos de los enlaces **de la celda "Detalle"** de cada fila, en orden de aparición.
  *
  * El extractor está acotado a esa celda a propósito. Sin acotar, afirmaba "hay exactamente un ancla
@@ -358,6 +382,29 @@ describe('app/libros/[id]/page.tsx', () => {
 
     await expect(renderizarDetalle('1')).rejects.toThrow(/SQLITE_CANTOPEN/u);
   });
+
+  it(
+    'el botón de venta usa las clases de foco visible del sistema de diseño y conserva ' +
+      'data-venta="confirmar" (FEAT-002b Block 2, AC-01, regresión sobre formularioDeVenta())',
+    async () => {
+      const id = sembrar(baseAbierta(), {
+        titulo: 'Rayuela',
+        identidad: 'rayuela',
+        editorial: 'Sudamericana',
+      });
+
+      const formulario = formularioDeVenta(await renderizarDetalle(String(id)));
+
+      // Regresión: el anclaje que ya vigila `test/app/acciones-libro.test.ts` no se mueve con el
+      // cambio de marcado de este bloque.
+      expect(formulario).toContain('data-venta="confirmar"');
+
+      // Comportamiento nuevo de este bloque: el botón pasa a `BotonEnvio` con las mismas clases
+      // de foco visible que ya usan `Boton`/`CampoTexto` (mismas utilidades, mismo token
+      // `--color-foco`).
+      expect(formulario).toMatch(/focus-visible:outline-foco/u);
+    },
+  );
 });
 
 describe('la fila del listado lleva al detalle (FR-01)', () => {

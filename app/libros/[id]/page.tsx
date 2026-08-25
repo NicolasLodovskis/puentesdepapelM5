@@ -2,6 +2,7 @@ import { notFound } from 'next/navigation';
 
 import { ventaDeLibro } from '@/app/acciones-libro';
 import { DetalleLibro } from '@/app/componentes/detalle-libro';
+import { BotonEnvio } from '@/app/componentes/ui/boton-envio';
 import { resolverFalloDelCatalogo } from '@/app/estado-del-catalogo';
 import {
   identificadorDeLibro,
@@ -40,8 +41,11 @@ import { resolverRutaMostrable, tienePortada } from '@/lib/portadas/almacenamien
  * eso es lo que hay que revisar.
  *
  * Sigue sin llevar `'use client'`: el formulario de confirmación no tiene estado ni evento propio
- * —lo envía el navegador y lo atiende el Server Action— y el único componente cliente de la
- * pantalla es el `<Link>` de "volver al catálogo" que trae `DetalleLibro`, que se paga una vez.
+ * —lo envía el navegador y lo atiende el Server Action—. Esta pantalla trae ahora dos componentes
+ * cliente, y no uno: el `<Link>` de "volver al catálogo" que trae `DetalleLibro`, y `BotonEnvio`
+ * (spec FEAT-002b, Block 1/2) en la sección de venta de acá abajo, que se paga una vez cada uno.
+ * Sigue sin haber JavaScript de cliente **por fila** (NFR-01 de FEAT-001a): eso es sobre el
+ * listado, no sobre esta pantalla, que renderiza un solo libro.
  */
 
 interface PropsDetalle {
@@ -94,10 +98,14 @@ export default async function PaginaDetalle({ params }: PropsDetalle) {
         `aria-labelledby` y no `aria-label`: con los dos, un lector de pantalla anuncia el mismo
         texto dos veces —el de la región y el del encabezado que ya está adentro—.
       */}
-      <section className="venta" aria-labelledby="venta">
-        <h2 id="venta">{TITULO_VENTA}</h2>
+      <section className="venta mt-6 border-t border-borde pt-6 text-texto" aria-labelledby="venta">
+        <h2 id="venta" className="mb-2 text-lg font-semibold text-texto">
+          {TITULO_VENTA}
+        </h2>
         {libro.stock === SIN_EJEMPLARES ? (
-          <p data-venta="sin-stock">{MENSAJE_VENTA_SIN_STOCK}</p>
+          <p data-venta="sin-stock" className="text-texto">
+            {MENSAJE_VENTA_SIN_STOCK}
+          </p>
         ) : (
           /*
             El identificador viaja en un campo del formulario y el Server Action lo vuelve a validar:
@@ -107,9 +115,14 @@ export default async function PaginaDetalle({ params }: PropsDetalle) {
           */
           <form action={ventaDeLibro}>
             <input type="hidden" name="id" value={String(libro.id)} />
-            <button type="submit" data-venta="confirmar">
+            <BotonEnvio
+              type="submit"
+              data-venta="confirmar"
+              textoEnviando="Vendiendo…"
+              className="inline-block rounded bg-texto px-4 py-2 text-center font-medium text-fondo hover:opacity-90 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-foco"
+            >
               {TEXTO_CONFIRMAR_VENTA}
-            </button>
+            </BotonEnvio>
           </form>
         )}
       </section>
