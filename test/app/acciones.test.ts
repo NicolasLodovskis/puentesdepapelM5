@@ -951,6 +951,9 @@ describe('umbrales de cobertura (AC-11, NFR-03)', () => {
           timeout: 60_000,
           killSignal: 'SIGKILL',
           maxBuffer: 8 * 1024 * 1024,
+          // Sin esto, un entorno que le fuerza color a Vitest (algunos runners de CI) intercala
+          // códigos ANSI entre palabras y rompe los `toMatch` de abajo, que asumen texto plano.
+          env: { ...process.env, FORCE_COLOR: '0', NO_COLOR: '1' },
         },
       );
       const salida = `${corrida.stdout}${corrida.stderr}`;

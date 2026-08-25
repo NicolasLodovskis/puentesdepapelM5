@@ -1,0 +1,6 @@
+# Fix FIX-001: Colores ANSI del proceso hijo de Vitest rompen el test de umbrales de cobertura en CI
+
+- **Bug**: `test/app/acciones.test.ts` levanta un proceso hijo real de Vitest para comprobar que los umbrales de cobertura (AC-11, NFR-03) hacen fallar la corrida, y compara su salida contra `/Tests\s+1 passed/u`. En GitHub Actions ese proceso hijo emite códigos de color ANSI entre "Tests" y "1 passed" (localmente no, porque la salida capturada no es una terminal interactiva), así que `\s+` no los salta y el `toMatch` falla — sin que haya ningún bug en la app ni en la cobertura real.
+- **Change**: `test/app/acciones.test.ts:945-955` — agregar `env: { ...process.env, FORCE_COLOR: '0', NO_COLOR: '1' }` a las opciones del `spawnSync` que lanza el proceso hijo de Vitest, para que su salida sea siempre texto plano sin importar el entorno.
+- **Regression test**: `una corrida con esos mismos umbrales falla cuando la cobertura queda por debajo` (el mismo test ya existente) — hoy falla en CI (rojo) y pasa en local; después del cambio pasa en ambos entornos.
+- **Risk**: none — el cambio sólo afecta cómo se captura la salida de un proceso hijo de test, no toca código de producción ni cambia qué se verifica.

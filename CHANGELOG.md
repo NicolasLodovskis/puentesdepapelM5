@@ -78,6 +78,9 @@ Formato basado en [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/).
   cierra la limitación conocida que dejó abierta FEAT-001a (un mismo libro ya no puede
   cargarse dos veces por un punto o una coma de más). Una migración recalcula la
   identidad de los libros ya cargados al arrancar.
+- FIX-001 — El test de umbrales de cobertura (AC-11, NFR-03) ya no depende de si el
+  proceso hijo de Vitest que lanza imprime colores ANSI o no: se fuerza salida sin
+  color en su entorno, así que pasa igual en local y en GitHub Actions.
 
 ### Limitaciones conocidas
 
