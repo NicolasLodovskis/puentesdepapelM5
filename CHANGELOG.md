@@ -42,12 +42,19 @@ Formato basado en [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/).
   compartidos (`Boton`, `CampoTexto`, `Feedback`) pensados para que el resto del split
   (FEAT-002b, FEAT-002c) los reutilice. Las celdas "Ver"/"Vender" del listado siguen siendo
   enlaces sin JavaScript de cliente por fila; ninguna Server Action ni `data-campo` cambió.
+- FEAT-002b — Detalle de libro rediseñado con el mismo sistema de diseño de FEAT-002a y
+  feedback de carga/error en las Server Actions de editar, vender y gestionar la portada,
+  conectando por primera vez el componente `Feedback`. Los campos de los formularios de
+  edición y de portada no se rediseñan (queda para FEAT-002c); ninguna Server Action cambió
+  su comportamiento.
 
 ### Añadido
 
 - FEAT-002a — Entorno de test de componentes (jsdom + Testing Library) aislado por archivo
   del entorno `node` que ya usan los tests de Server Actions, para cubrir con tests
   automatizados los componentes de UI interactivos que este split va a seguir agregando.
+- FEAT-002b — `BotonEnvio`, un botón con estado de carga para los formularios que no usan
+  `useActionState` (venta, quitar foto), reutilizable por FEAT-002c.
 
 ### Seguridad
 
