@@ -7,6 +7,7 @@ import type { Libro } from '@/lib/db/tipos';
 import { edicionDeLibro } from '../acciones-libro';
 import type { MensajesPorCampo, ResultadoEdicion } from '../mensajes';
 import { TEXTO_GUARDAR_EDICION, TITULO_EDICION } from '../mensajes';
+import { Feedback } from './ui/feedback';
 
 /**
  * Formulario de edición de un libro (FR-03 a FR-06), en la vista de detalle.
@@ -59,18 +60,21 @@ export function CamposDeEdicion({ libro, estado, enviarEdicion, enviando }: Prop
   const aviso = avisoDe(estado);
 
   return (
-    <form action={enviarEdicion} className="edicion">
-      <h2>{TITULO_EDICION}</h2>
+    <form action={enviarEdicion} className="edicion flex flex-col gap-3">
+      <h2 className="text-lg font-semibold text-texto">{TITULO_EDICION}</h2>
 
       {/* El identificador viaja oculto, validado igual que el de la venta (M1). */}
       <input type="hidden" name="id" value={String(libro.id)} />
 
-      <p className="aviso error" aria-live="polite">
-        {aviso}
-      </p>
+      <Feedback
+        estado={enviando ? 'cargando' : estado?.ok === false ? 'error' : 'inactivo'}
+        mensaje={aviso}
+      />
 
       <div data-operacion="titulo">
-        <label htmlFor="edicion-titulo">Título</label>
+        <label htmlFor="edicion-titulo" className="mb-1 block text-sm font-medium text-texto">
+          Título
+        </label>
         <input
           id="edicion-titulo"
           name="titulo"
@@ -78,12 +82,15 @@ export function CamposDeEdicion({ libro, estado, enviarEdicion, enviando }: Prop
           defaultValue={libro.titulo}
           required
           maxLength={LARGO_MAXIMO_TEXTO}
+          className="w-full rounded border border-borde bg-fondo px-3 py-2 text-texto focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-foco"
         />
         <p className="error-de-campo">{mensajes.titulo}</p>
       </div>
 
       <div data-operacion="editorial">
-        <label htmlFor="edicion-editorial">Editorial</label>
+        <label htmlFor="edicion-editorial" className="mb-1 block text-sm font-medium text-texto">
+          Editorial
+        </label>
         <input
           id="edicion-editorial"
           name="editorial"
@@ -91,12 +98,15 @@ export function CamposDeEdicion({ libro, estado, enviarEdicion, enviando }: Prop
           defaultValue={libro.editorial}
           required
           maxLength={LARGO_MAXIMO_TEXTO}
+          className="w-full rounded border border-borde bg-fondo px-3 py-2 text-texto focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-foco"
         />
         <p className="error-de-campo">{mensajes.editorial}</p>
       </div>
 
       <div data-operacion="stock">
-        <label htmlFor="edicion-stock">Stock</label>
+        <label htmlFor="edicion-stock" className="mb-1 block text-sm font-medium text-texto">
+          Stock
+        </label>
         <input
           id="edicion-stock"
           name="stock"
@@ -106,12 +116,15 @@ export function CamposDeEdicion({ libro, estado, enviarEdicion, enviando }: Prop
           min={STOCK_MINIMO}
           max={STOCK_MAXIMO}
           step={1}
+          className="w-full rounded border border-borde bg-fondo px-3 py-2 text-texto focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-foco"
         />
         <p className="error-de-campo">{mensajes.stock}</p>
       </div>
 
       <div data-operacion="precio">
-        <label htmlFor="edicion-precio">Precio</label>
+        <label htmlFor="edicion-precio" className="mb-1 block text-sm font-medium text-texto">
+          Precio
+        </label>
         {/* `text` y no `number`, mismo motivo que el alta: el precio se escribe como en la vida
             real y un campo numérico del navegador rechazaría la coma antes de que el servidor
             pueda explicar el motivo (AC-05). */}
@@ -122,12 +135,18 @@ export function CamposDeEdicion({ libro, estado, enviarEdicion, enviando }: Prop
           inputMode="decimal"
           defaultValue={String(libro.precio)}
           required
+          className="w-full rounded border border-borde bg-fondo px-3 py-2 text-texto focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-foco"
         />
         <p className="error-de-campo">{mensajes.precio}</p>
       </div>
 
       {/* Bloqueado mientras la edición viaja: dos clicks seguidos serían dos ediciones. */}
-      <button type="submit" data-edicion="guardar" disabled={enviando}>
+      <button
+        type="submit"
+        data-edicion="guardar"
+        disabled={enviando}
+        className="inline-block rounded bg-texto px-4 py-2 text-center font-medium text-fondo hover:opacity-90 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-foco"
+      >
         {enviando ? 'Guardando…' : TEXTO_GUARDAR_EDICION}
       </button>
     </form>

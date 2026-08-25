@@ -208,6 +208,30 @@ function operaciones(html: string): string[] {
 }
 
 /**
+ * El formulario de la sección de venta del detalle, con su marcado adentro.
+ *
+ * Mismo criterio y mismo riesgo que `formularioDeVenta()` en `test/app/acciones-libro.test.ts`
+ * (no se importa desde ahí porque ese archivo no exporta nada: es una guardia hermana, no una
+ * dependencia): se elige por el marcador del control de confirmación —`data-venta="confirmar"`—
+ * y no por ser el primer `<form>` del HTML, porque el formulario de edición vive en la misma
+ * pantalla. Falla cerrado si no encuentra exactamente uno.
+ */
+function formularioDeVenta(html: string): string {
+  const encontrados = Array.from(
+    html.matchAll(/<form[\s\S]*?<\/form>/gu),
+    (coincidencia) => coincidencia[0],
+  ).filter((formulario) => formulario.includes('data-venta="confirmar"'));
+
+  if (encontrados.length !== 1) {
+    throw new Error(
+      `Se esperaba un solo formulario de venta en el detalle y se encontraron ${String(encontrados.length)}.`,
+    );
+  }
+
+  return encontrados[0];
+}
+
+/**
  * Los destinos de los enlaces **de la celda "Detalle"** de cada fila, en orden de aparición.
  *
  * El extractor está acotado a esa celda a propósito. Sin acotar, afirmaba "hay exactamente un ancla
@@ -358,6 +382,68 @@ describe('app/libros/[id]/page.tsx', () => {
 
     await expect(renderizarDetalle('1')).rejects.toThrow(/SQLITE_CANTOPEN/u);
   });
+
+  it(
+    'el botón de venta usa las clases de foco visible del sistema de diseño y conserva ' +
+      'data-venta="confirmar" (FEAT-002b Block 2, AC-01, regresión sobre formularioDeVenta())',
+    async () => {
+      const id = sembrar(baseAbierta(), {
+        titulo: 'Rayuela',
+        identidad: 'rayuela',
+        editorial: 'Sudamericana',
+      });
+
+      const formulario = formularioDeVenta(await renderizarDetalle(String(id)));
+
+      // Regresión: el anclaje que ya vigila `test/app/acciones-libro.test.ts` no se mueve con el
+      // cambio de marcado de este bloque.
+      expect(formulario).toContain('data-venta="confirmar"');
+
+      // Comportamiento nuevo de este bloque: el botón pasa a `BotonEnvio` con las mismas clases
+      // de foco visible que ya usan `Boton`/`CampoTexto` (mismas utilidades, mismo token
+      // `--color-foco`).
+      expect(formulario).toMatch(/focus-visible:outline-foco/u);
+    },
+  );
+
+  it(
+    'el formulario de edición conserva data-edicion="guardar" y sus data-operacion tras el ' +
+      'cambio a Feedback (FEAT-002b Block 4, regresión)',
+    async () => {
+      const id = sembrar(baseAbierta(), {
+        titulo: 'Rayuela',
+        identidad: 'rayuela',
+        editorial: 'Sudamericana',
+      });
+
+      const html = await renderizarDetalle(String(id));
+
+      expect(html).toContain('data-edicion="guardar"');
+      expect(operaciones(html)).toEqual(
+        expect.arrayContaining(['titulo', 'editorial', 'stock', 'precio']),
+      );
+    },
+  );
+
+  it(
+    'el formulario de portada conserva data-portada="cambiar" tras el cambio a Feedback/BotonEnvio ' +
+      '(FEAT-002b Block 5, regresión)',
+    async () => {
+      const id = sembrar(baseAbierta(), {
+        titulo: 'Rayuela',
+        identidad: 'rayuela',
+        editorial: 'Sudamericana',
+      });
+
+      const html = await renderizarDetalle(String(id));
+
+      expect(html).toContain('data-portada="cambiar"');
+      // Sin foto asignada, `tienePortada` es false: "quitar" no se ofrece. Su condicionalidad
+      // (data-portada="quitar" sólo con tienePortada=true) ya la vigilan las líneas 1399/1405 de
+      // `test/app/acciones-libro.test.ts`, sin duplicarla acá.
+      expect(html).not.toContain('data-portada="quitar"');
+    },
+  );
 });
 
 describe('la fila del listado lleva al detalle (FR-01)', () => {
@@ -563,6 +649,29 @@ describe('app/componentes/detalle-libro.tsx', () => {
     expect(html).not.toContain('<img onerror=');
     expect(html).toContain('&lt;script&gt;alert(1)&lt;/script&gt;');
   });
+
+  it(
+    'conserva los cuatro data-campo con su mismo contenido tras el cambio de clases del ' +
+      'sistema de diseño (FEAT-002b Block 3, regresión de marcado, no de diseño visual)',
+    () => {
+      const html = renderToStaticMarkup(
+        createElement(DetalleLibro, {
+          libro: LIBRO,
+          rutaPortada: '/logo-puentes-de-papel-96.jpg',
+          tienePortada: false,
+        }),
+      );
+
+      // El mismo anclaje que usa el resto del archivo (`dato()`), y el mismo contenido que ya
+      // afirmaba el primer test de este describe antes de que este bloque tocara las clases: si
+      // el cambio de marcado envolviera un `<dd>` en un `<span>` para poder pintarlo, esta misma
+      // aserción se pondría roja porque `dato()` no admite etiquetas anidadas dentro del `<dd>`.
+      expect(dato(html, 'titulo')).toEqual(['Rayuela']);
+      expect(dato(html, 'editorial')).toEqual(['Sudamericana']);
+      expect(dato(html, 'stock')).toEqual(['4']);
+      expect(dato(html, 'precio')).toEqual(['$ 9.500']);
+    },
+  );
 });
 
 describe('cableado de la pantalla del catálogo sin migrar (AC-16)', () => {
