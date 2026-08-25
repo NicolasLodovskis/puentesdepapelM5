@@ -38,4 +38,23 @@ describe('Boton', () => {
     expect(boton.tagName).toBe('BUTTON');
     expect(boton).toHaveAttribute('type', 'button');
   });
+
+  /**
+   * ADR-002: `disabled` y `data-*` sólo tienen sentido en la variante `button` (un `<a>` no tiene
+   * `disabled` nativo). `enviando`/anclas como `data-edicion="guardar"` son el caso de uso real
+   * (Block 2/3/4 de FEAT-002c).
+   */
+  it('con disabled en true (sin as) renderiza el <button> con el atributo disabled', () => {
+    render(<Boton disabled>Guardar</Boton>);
+
+    const boton = screen.getByRole('button', { name: 'Guardar' });
+    expect(boton).toBeDisabled();
+  });
+
+  it('un data-* pasado se renderiza en el DOM del <button>', () => {
+    render(<Boton data-edicion="guardar">Guardar</Boton>);
+
+    const boton = screen.getByRole('button', { name: 'Guardar' });
+    expect(boton).toHaveAttribute('data-edicion', 'guardar');
+  });
 });
