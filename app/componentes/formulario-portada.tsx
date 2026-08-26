@@ -5,7 +5,9 @@ import { useActionState } from 'react';
 import { asignarFoto, quitarFoto } from '../acciones-libro';
 import type { MensajesPorCampo, ResultadoAsignarFoto } from '../mensajes';
 import { TEXTO_CAMBIAR_FOTO, TEXTO_QUITAR_FOTO, TITULO_PORTADA } from '../mensajes';
+import { Boton } from './ui/boton';
 import { BotonEnvio } from './ui/boton-envio';
+import { CampoTexto } from './ui/campo-texto';
 import { Feedback } from './ui/feedback';
 
 /**
@@ -73,23 +75,19 @@ export function CamposDePortada({
           mensaje={aviso}
         />
 
-        <input
-          type="file"
+        <CampoTexto
+          id="portada-foto"
+          label="Foto de portada"
           name="foto"
+          type="file"
           accept="image/*"
-          className="text-texto focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-foco"
         />
         <p className="error-de-campo">{mensajes.foto}</p>
 
         {/* Bloqueado mientras la foto viaja: dos clicks seguidos serían dos asignaciones. */}
-        <button
-          type="submit"
-          data-portada="cambiar"
-          disabled={enviando}
-          className="inline-block rounded bg-texto px-4 py-2 text-center font-medium text-fondo hover:opacity-90 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-foco"
-        >
+        <Boton type="submit" data-portada="cambiar" disabled={enviando}>
           {enviando ? 'Guardando…' : TEXTO_CAMBIAR_FOTO}
-        </button>
+        </Boton>
       </form>
 
       {tienePortada ? (
