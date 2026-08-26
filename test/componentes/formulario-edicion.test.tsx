@@ -69,4 +69,21 @@ describe('CamposDeEdicion (FEAT-002b Block 4)', () => {
     expect(region).toHaveAttribute('data-estado', 'error');
     expect(region).toHaveTextContent('texto curado');
   });
+
+  it('los 4 campos se renderizan vía CampoTexto (div.campo-texto) con su label y su defaultValue desde libro (FEAT-002c Block 3)', () => {
+    const { container } = render(
+      <CamposDeEdicion libro={LIBRO} estado={null} enviando={false} enviarEdicion={() => {}} />,
+    );
+
+    // `CampoTexto` es la única fuente del repo que envuelve label+input en un
+    // `<div className="campo-texto">`; el marcado manual que reemplaza este bloque no lo tenía.
+    // Sin esto, el test pasaría igual contra el `<label>+<input>` a mano que existía antes de
+    // este bloque, porque `getByLabelText` no distingue quién renderizó el par.
+    expect(container.querySelectorAll('[data-operacion] .campo-texto')).toHaveLength(4);
+
+    expect(screen.getByLabelText('Título')).toHaveValue(LIBRO.titulo);
+    expect(screen.getByLabelText('Editorial')).toHaveValue(LIBRO.editorial);
+    expect(screen.getByLabelText('Stock')).toHaveValue(LIBRO.stock);
+    expect(screen.getByLabelText('Precio')).toHaveValue(String(LIBRO.precio));
+  });
 });
