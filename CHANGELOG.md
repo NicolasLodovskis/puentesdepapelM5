@@ -47,6 +47,14 @@ Formato basado en [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/).
   conectando por primera vez el componente `Feedback`. Los campos de los formularios de
   edición y de portada no se rediseñan (queda para FEAT-002c); ninguna Server Action cambió
   su comportamiento.
+- FEAT-002c — Los tres formularios de libro (alta, edición, portada) migran sus campos y
+  botones a los componentes compartidos `CampoTexto`/`Boton`, cerrando el rediseño del split
+  FEAT-002. `Boton` se extiende con `disabled` y atributos `data-*` (ADR-002) para admitir
+  el bloqueo mientras la Server Action está en curso y conservar las anclas de test
+  existentes. El campo de foto de portada, que no tenía `<label>`, ahora lo tiene ("Foto de
+  portada"). El formulario de alta conecta `Feedback` por primera vez (4 estados); edición y
+  portada ya lo tenían desde FEAT-002b y no se tocan. Ninguna Server Action cambió su
+  comportamiento.
 
 ### Añadido
 
