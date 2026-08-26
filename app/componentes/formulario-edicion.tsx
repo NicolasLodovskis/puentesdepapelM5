@@ -7,6 +7,8 @@ import type { Libro } from '@/lib/db/tipos';
 import { edicionDeLibro } from '../acciones-libro';
 import type { MensajesPorCampo, ResultadoEdicion } from '../mensajes';
 import { TEXTO_GUARDAR_EDICION, TITULO_EDICION } from '../mensajes';
+import { Boton } from './ui/boton';
+import { CampoTexto } from './ui/campo-texto';
 import { Feedback } from './ui/feedback';
 
 /**
@@ -72,43 +74,35 @@ export function CamposDeEdicion({ libro, estado, enviarEdicion, enviando }: Prop
       />
 
       <div data-operacion="titulo">
-        <label htmlFor="edicion-titulo" className="mb-1 block text-sm font-medium text-texto">
-          Título
-        </label>
-        <input
+        <CampoTexto
           id="edicion-titulo"
+          label="Título"
           name="titulo"
           type="text"
           defaultValue={libro.titulo}
           required
           maxLength={LARGO_MAXIMO_TEXTO}
-          className="w-full rounded border border-borde bg-fondo px-3 py-2 text-texto focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-foco"
         />
         <p className="error-de-campo">{mensajes.titulo}</p>
       </div>
 
       <div data-operacion="editorial">
-        <label htmlFor="edicion-editorial" className="mb-1 block text-sm font-medium text-texto">
-          Editorial
-        </label>
-        <input
+        <CampoTexto
           id="edicion-editorial"
+          label="Editorial"
           name="editorial"
           type="text"
           defaultValue={libro.editorial}
           required
           maxLength={LARGO_MAXIMO_TEXTO}
-          className="w-full rounded border border-borde bg-fondo px-3 py-2 text-texto focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-foco"
         />
         <p className="error-de-campo">{mensajes.editorial}</p>
       </div>
 
       <div data-operacion="stock">
-        <label htmlFor="edicion-stock" className="mb-1 block text-sm font-medium text-texto">
-          Stock
-        </label>
-        <input
+        <CampoTexto
           id="edicion-stock"
+          label="Stock"
           name="stock"
           type="number"
           defaultValue={libro.stock}
@@ -116,39 +110,30 @@ export function CamposDeEdicion({ libro, estado, enviarEdicion, enviando }: Prop
           min={STOCK_MINIMO}
           max={STOCK_MAXIMO}
           step={1}
-          className="w-full rounded border border-borde bg-fondo px-3 py-2 text-texto focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-foco"
         />
         <p className="error-de-campo">{mensajes.stock}</p>
       </div>
 
       <div data-operacion="precio">
-        <label htmlFor="edicion-precio" className="mb-1 block text-sm font-medium text-texto">
-          Precio
-        </label>
         {/* `text` y no `number`, mismo motivo que el alta: el precio se escribe como en la vida
             real y un campo numérico del navegador rechazaría la coma antes de que el servidor
             pueda explicar el motivo (AC-05). */}
-        <input
+        <CampoTexto
           id="edicion-precio"
+          label="Precio"
           name="precio"
           type="text"
           inputMode="decimal"
           defaultValue={String(libro.precio)}
           required
-          className="w-full rounded border border-borde bg-fondo px-3 py-2 text-texto focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-foco"
         />
         <p className="error-de-campo">{mensajes.precio}</p>
       </div>
 
       {/* Bloqueado mientras la edición viaja: dos clicks seguidos serían dos ediciones. */}
-      <button
-        type="submit"
-        data-edicion="guardar"
-        disabled={enviando}
-        className="inline-block rounded bg-texto px-4 py-2 text-center font-medium text-fondo hover:opacity-90 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-foco"
-      >
+      <Boton type="submit" data-edicion="guardar" disabled={enviando}>
         {enviando ? 'Guardando…' : TEXTO_GUARDAR_EDICION}
-      </button>
+      </Boton>
     </form>
   );
 }

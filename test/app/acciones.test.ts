@@ -554,6 +554,10 @@ describe('componentes de la pantalla', () => {
     expect(html).toContain('Falta el título.');
     expect(html).toContain('El precio no es un número.');
     expect(html).toContain('Algo salió mal.');
+    // `Feedback` (Block 2 de FEAT-002c) anuncia el rechazo como `data-estado="error"`, no ya
+    // como la clase `aviso error` de antes.
+    expect(html).toContain('role="status"');
+    expect(html).toContain('data-estado="error"');
   });
 
   it('el formulario avisa el éxito y bloquea el botón mientras envía', () => {
@@ -566,6 +570,10 @@ describe('componentes de la pantalla', () => {
     );
 
     expect(exito).toContain('El libro quedó cargado.');
+    // El éxito es alcanzable únicamente acá (`altaDeLibro()` no redirige): `Feedback` lo anuncia
+    // como `data-estado="exito"`.
+    expect(exito).toContain('role="status"');
+    expect(exito).toContain('data-estado="exito"');
 
     // `null` es el estado antes del primer envío: el formulario no muestra ningún aviso.
     const enviando = renderToStaticMarkup(
@@ -580,14 +588,11 @@ describe('componentes de la pantalla', () => {
     // usuaria ve un error de título repetido que ella no provocó.
     expect(enviando).toContain('disabled=""');
 
-    // Y con el estado en `null` el formulario no muestra **ningún** aviso: el párrafo del aviso
-    // sale vacío y no hay un solo mensaje de campo con texto. Sin estas dos líneas, la rama del
-    // estado inicial se ejecutaba sin que nada la afirmara.
-    // El párrafo del aviso sale cerrado sobre sí mismo, y ninguno de los cuatro mensajes de
-    // campo tiene contenido: la lookahead es la que distingue `></p>` —vacío— de un párrafo con
-    // texto adentro. (Con `>\S` no alcanzaba: el `<` de `</p>` ya es un carácter que no es
-    // espacio, así que esa versión se ponía roja contra un formulario perfectamente vacío.)
-    expect(enviando).toContain('<p class="aviso error" aria-live="polite"></p>');
+    // Con `enviando=true`, `Feedback` recibe `estado="cargando"` sin importar el `estado` de
+    // `useActionState` (que acá sigue en `null`): el contrato viejo del párrafo `aviso error`
+    // vacío deja de existir con `Feedback` conectado (Block 2 de FEAT-002c).
+    expect(enviando).toContain('role="status"');
+    expect(enviando).toContain('data-estado="cargando"');
     expect(enviando).not.toMatch(/class="error-de-campo">(?!<\/p>)/u);
   });
 

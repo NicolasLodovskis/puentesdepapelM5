@@ -34,4 +34,14 @@ describe('CampoTexto', () => {
     expect(input).toHaveAttribute('placeholder', 'Título o editorial');
     expect(input).toHaveAttribute('maxlength', '50');
   });
+
+  // Primer uso de esta combinación en el repo (Block 2 de FEAT-002c: `formulario-alta.tsx` y,
+  // más adelante, `formulario-portada.tsx`).
+  it('renderiza type="file" con accept y el label asociado', () => {
+    render(<CampoTexto id="foto" label="Foto de portada" type="file" accept="image/*" />);
+
+    const input = screen.getByLabelText('Foto de portada');
+    expect(input).toHaveAttribute('type', 'file');
+    expect(input).toHaveAttribute('accept', 'image/*');
+  });
 });

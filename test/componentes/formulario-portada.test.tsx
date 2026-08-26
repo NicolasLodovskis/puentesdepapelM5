@@ -52,6 +52,24 @@ function crearDeferida<T>() {
  * dos formularios del detalle, en vez de inventar un segundo mecanismo de testeo para este bloque.
  */
 describe('CamposDePortada (FEAT-002b Block 5)', () => {
+  it('el campo de foto tiene un label accesible "Foto de portada" (FEAT-002c Block 4, NFR-01)', () => {
+    render(
+      <CamposDePortada
+        id={7}
+        tienePortada={false}
+        estado={null}
+        enviando={false}
+        enviarFoto={() => {}}
+      />,
+    );
+
+    // `selector: 'input'` es necesario: sin él, `getByLabelText` también matchea la
+    // `<section aria-labelledby="portada">` que envuelve todo el formulario (Testing Library no
+    // restringe `aria-labelledby` a controles de formulario), lo que daría un falso positivo
+    // aunque el `<input>` de foto no tuviera ningún label propio.
+    expect(screen.getByLabelText('Foto de portada', { selector: 'input' })).toBeInTheDocument();
+  });
+
   it('con estado=null (sin envío) no renderiza ningún role="status" — mapeo a "inactivo"', () => {
     const { container } = render(
       <CamposDePortada

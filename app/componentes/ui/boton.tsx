@@ -43,12 +43,20 @@ interface PropsBotonComoEnlace extends PropsComunes {
  * `<Boton as="a">` sin `href`, `<Boton as="button" href>` y `<Boton href>` (sin `as`) quedan los
  * tres resueltos por los tipos en tiempo de compilación — no hay validación de esto en runtime
  * (así lo fija la spec).
+ *
+ * `disabled` y `data-*` (ADR-002, addendum a ADR-001) viven ÚNICAMENTE acá, nunca en
+ * `PropsComunes` ni en `PropsBotonComoEnlace`: un `<a>` no tiene `disabled` nativo, y compartir
+ * el tipo dejaría compilar `<Boton as="a" disabled>` sin sentido (mitigación 1 del threat model,
+ * ajuste pedido por el arch-auditor de PLAN). Mismo patrón de tipado que `BotonEnvio`
+ * (`boton-envio.tsx`) para los `data-*`.
  */
-interface PropsBotonComoBoton extends PropsComunes {
-  as?: 'button';
-  href?: never;
-  type?: 'button' | 'submit';
-}
+type PropsBotonComoBoton = PropsComunes &
+  Record<`data-${string}`, string> & {
+    as?: 'button';
+    href?: never;
+    type?: 'button' | 'submit';
+    disabled?: boolean;
+  };
 
 type PropsBoton = PropsBotonComoEnlace | PropsBotonComoBoton;
 
@@ -68,8 +76,17 @@ export function Boton(props: PropsBoton) {
     );
   }
 
+  const atributosData = Object.fromEntries(
+    Object.entries(props).filter(([clave]) => clave.startsWith('data-')),
+  ) as Record<`data-${string}`, string>;
+
   return (
-    <button type={props.type ?? 'button'} className={clases}>
+    <button
+      {...atributosData}
+      type={props.type ?? 'button'}
+      disabled={props.disabled}
+      className={clases}
+    >
       {props.children}
     </button>
   );
